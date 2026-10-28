@@ -42,6 +42,8 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 	chain, limits, abandoned := branchChain(pages)
 
 	t := &transcript.Transcript{Session: *s}
+	// Unknown reads the provider to look up the table, so a session built by hand still gets it.
+	t.Session.Provider = transcript.Codex
 	if abandoned > 0 {
 		t.Notes = append(t.Notes, fmt.Sprintf("%d abandoned branch page(s) skipped (edited or rolled-back turns)", abandoned))
 	}
@@ -252,7 +254,7 @@ func (b *builder) build(recs []record) {
 			b.eventMsg(r)
 		case "response_item":
 			b.responseItem(r)
-		case "session_meta", "token_usage_record", "world_state", "inter_agent_communication", "inter_agent_communication_metadata":
+		case "session_meta":
 			b.t.Ignore(r.typ)
 		default:
 			b.unknown(r.typ, r)
@@ -274,8 +276,9 @@ func (b *builder) build(recs []record) {
 // its position or its number. Each record is dispatched once, so it gets
 // one stand-in at most.
 func (b *builder) unknown(recordType string, r record) {
-	b.t.Unknown(recordType)
-	b.add(generic.Event(recordType, r.raw, r.ts, r.line))
+	if b.t.Unknown(recordType) {
+		b.add(generic.Event(recordType, r.raw, r.ts, r.line))
+	}
 }
 
 func (b *builder) add(e transcript.Event) int {
@@ -696,11 +699,6 @@ func (b *builder) eventMsg(r record) {
 		e.Output = "spawned"
 	case "token_count":
 		b.tokenCount(r)
-	case "task_started", "thread_settings_applied", "agent_message":
-		// Turn boundaries and posture: known, not yet modelled. An
-		// agent_message repeats the assistant response_item written after
-		// it (guardian reviews write their verdict this way).
-		b.t.Ignore("event_msg:" + r.sub)
 	default:
 		b.unknown("event_msg:"+r.sub, r)
 	}
@@ -870,9 +868,6 @@ func (b *builder) responseItem(r record) {
 		b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "web_search", Input: in, Line: r.line}, fromLegacy, "web\x00"+in, "")
 	case "agent_message":
 		b.interAgent(r)
-	case "tool_search_call", "tool_search_output", "compaction":
-		// Dynamic tool discovery and the encrypted compaction item.
-		b.t.Ignore("response_item:" + r.sub)
 	default:
 		b.unknown("response_item:"+r.sub, r)
 	}
@@ -1417,9 +1412,6 @@ func (b *builder) item(r record) {
 		b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "view_image", Input: path, Line: r.line}, fromItem, "image\x00"+path, "")
 	case "SubAgentActivity":
 		b.subAgent(r, env.Item)
-	case "ContextCompaction", "CollabAgentToolCall", "EnteredReviewMode", "ExitedReviewMode":
-		// Covered by compacted records, agent function calls and review-mode events.
-		b.t.Ignore("item:" + head.Type)
 	case "Plan":
 		var it struct {
 			Text string `json:"text"`
@@ -1429,8 +1421,9 @@ func (b *builder) item(r record) {
 	default:
 		// An item type this build has never seen: read it by shape rather
 		// than dropping to a blob of JSON, and count it so --doctor says so.
-		b.t.Unknown("item:" + head.Type)
-		b.add(generic.Event("item:"+head.Type, r.raw, r.ts, r.line))
+		if b.t.Unknown("item:" + head.Type) {
+			b.add(generic.Event("item:"+head.Type, r.raw, r.ts, r.line))
+		}
 	}
 }
 

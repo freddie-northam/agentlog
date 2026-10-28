@@ -66,6 +66,17 @@ func (t Table) Knows(recordType string) bool {
 	return false
 }
 
+// Ignores reports whether a harness's built-in table declares recordType as Ignore.
+// Rows from types.json do not count, because a declared type still shows in the views.
+func Ignores(provider, recordType string) bool {
+	for _, r := range tables[provider].Records {
+		if r.Type == recordType {
+			return r.Role == Ignore
+		}
+	}
+	return false
+}
+
 // tables is filled by each reader at init, so that nothing imports a reader in
 // order to ask what it knows.
 var tables = map[string]Table{}

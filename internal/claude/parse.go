@@ -83,6 +83,8 @@ type block struct {
 // Load parses a session or subagent transcript.
 func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.Transcript, error) {
 	t := &transcript.Transcript{Session: *s}
+	// Unknown reads the provider to look up the table, so a session built by hand still gets it.
+	t.Session.Provider = transcript.Claude
 	b := &builder{t: t, calls: map[string]int{}, answered: map[int]bool{}, parent: map[string]string{},
 		counted: map[string]bool{}, subagent: s.ParentID != ""}
 	if s.ParentID == "" {
@@ -343,21 +345,6 @@ func plural(n int, one, many string) string {
 	return fmt.Sprintf("%d %s", n, many)
 }
 
-// ignoredTypes are records the harness writes that carry no step of the
-// conversation: session bookkeeping, the harness's own file-history store, and
-// posture flags. They are counted so the totals still add up.
-var ignoredTypes = map[string]bool{
-	"last-prompt": true, "mode": true, "permission-mode": true, "atis-latch": true,
-	"bridge-session": true, "agent-name": true, "file-history-snapshot": true,
-	"file-history-delta": true, "frame-link": true, "summary": true,
-	// Since 2.1.300 the harness also keeps a copy of every request it sent to
-	// the model. The conversation is already in the log; what only the copy
-	// holds (system prompt, tool definitions) is not a step anyone took.
-	"api-request": true, "api-request-shape": true, "api-request-blob": true,
-	// The tool calls are already events. The artifact records are the harness's own watch state.
-	"tools-used": true, "artifact-comment-monitor": true, "artifact-autoreact-ledger": true,
-}
-
 // modelUsage is one model's share of a cost-state record.
 type modelUsage struct {
 	Input      int64   `json:"inputTokens"`
@@ -523,10 +510,6 @@ func (b *builder) entry(e entry, line int) {
 			b.t.Session.Title = e.AITitle
 		}
 	default:
-		if ignoredTypes[e.Type] {
-			b.t.Ignore(e.Type)
-			return
-		}
 		b.unknown(e.Type, e.Timestamp, line)
 	}
 }
@@ -553,7 +536,9 @@ func branchNote(branch string) string {
 // flattened into the event, so a renamed type costs its pretty rendering and
 // nothing else: it keeps its place, its number, and its content.
 func (b *builder) unknown(recordType string, at time.Time, line int) {
-	b.t.Unknown(recordType)
+	if !b.t.Unknown(recordType) {
+		return
+	}
 	// One stand-in per record, however many parts of it are strange. Records
 	// are told apart by their count, not their line: a tail window has no
 	// line numbers.

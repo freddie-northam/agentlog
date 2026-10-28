@@ -140,27 +140,12 @@ type event struct {
 	} `json:"data"`
 }
 
-// ignoredTypes are Copilot events the reader knows about and does not model:
-// turn and hook boundaries, permission prompts, posture and session-level
-// telemetry. Anything outside this list is reported as an unknown type.
-var ignoredTypes = map[string]bool{
-	"session.auto_mode_resolved": true, "session.usage_checkpoint": true,
-	"assistant.turn_start": true, "assistant.turn_end": true, "turn.completed": true,
-	"response.completed": true, "hook.start": true, "hook.end": true,
-	"permission.requested": true, "permission.completed": true,
-	"session.mode_changed": true, "session.info": true,
-	"session.plan_changed": true, "session.task_complete": true,
-	"session.compaction_start": true, "system.notification": true, "system.message": true,
-	"skill.invoked": true, "subagent.selected": true, "subagent.deselected": true,
-	"session.permissions_changed": true,
-	"model.turn_started":          true, "model.turn_ended": true, "model.model_call_started": true,
-	"model.model_call_failure": true, "model.captured_assignment_context": true,
-}
-
 // Load parses a Copilot session. Events emitted inside subagents (those with
 // a parentToolCallId) are counted as hidden; the task call carries the result.
 func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.Transcript, error) {
 	t := &transcript.Transcript{Session: *s}
+	// Unknown reads the provider to look up the table, so a session built by hand still gets it.
+	t.Session.Provider = transcript.Copilot
 	calls := map[string]int{}
 	account := usageAccount{}
 	answered := map[int]bool{}
@@ -198,8 +183,9 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 			if !errors.As(err, &te) || ev.Type == "" {
 				return nil
 			}
-			t.Unknown(ev.Type)
-			add(generic.Event(ev.Type, line, ev.Timestamp, n))
+			if t.Unknown(ev.Type) {
+				add(generic.Event(ev.Type, line, ev.Timestamp, n))
+			}
 			return nil
 		}
 		d := &ev.Data
@@ -341,12 +327,9 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 			base.Text = strings.TrimSpace("context compacted\n" + d.SummaryContent)
 			add(base)
 		default:
-			if ignoredTypes[ev.Type] {
-				t.Ignore(ev.Type)
-				return nil
+			if t.Unknown(ev.Type) {
+				add(generic.Event(ev.Type, line, ev.Timestamp, n))
 			}
-			t.Unknown(ev.Type)
-			add(generic.Event(ev.Type, line, ev.Timestamp, n))
 		}
 		if d.ParentToolCallID != "" {
 			for i := before; i < len(t.Events); i++ {

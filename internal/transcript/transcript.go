@@ -345,21 +345,24 @@ func (t *Transcript) Ignore(recordType string) {
 	t.Ignored[recordType]++
 }
 
-// Unknown counts one record of a type the reader has no case for at all, and
-// returns the event that stands in for it. Counting alone was the old
-// behaviour and it is the one thing a reader of someone else's log cannot
-// afford: a provider renames a record on a Tuesday and the tool quietly starts
-// answering questions about a session it is only half reading.
-func (t *Transcript) Unknown(recordType string) {
+// Unknown counts one record of a type the reader has no case for at all.
+// It reports whether the reader stands the record up as a generic event.
+// Counting alone is not enough: a provider renames a record on a Tuesday, and the tool then answers questions about a session it only half reads.
+func (t *Transcript) Unknown(recordType string) bool {
+	if spec.Ignores(t.Session.Provider, recordType) {
+		t.Ignore(recordType)
+		return false
+	}
 	// A type the person declared in types.json is known, if not modelled.
 	if spec.UserDeclared(t.Session.Provider, recordType) {
 		t.Ignore(recordType)
-		return
+		return true
 	}
 	if t.Unknowns == nil {
 		t.Unknowns = map[string]int{}
 	}
 	t.Unknowns[recordType]++
+	return true
 }
 
 // Generic builds the stand-in event for a record this build cannot read. The
