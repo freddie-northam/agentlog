@@ -175,12 +175,44 @@ type Event struct {
 	AgentID string `json:"agent_id,omitempty"` // child session id when known
 	Plan    []Step `json:"plan,omitempty"`
 
+	// Answers are the options a human chose, or the text a human typed, in reply to a question tool.
+	// They count as human input only when Human is set.
+	Answers []Answer `json:"answers,omitempty"`
+
 	// Abandoned marks a step the session walked away from — a rewound, edited
 	// or restarted turn. Only set when abandoned branches were asked for.
 	Abandoned bool `json:"abandoned,omitempty"`
 
 	CallID string `json:"-"` // provider call id, used while pairing results
 	Line   int    `json:"line"`
+}
+
+// Answer is a human's answer to one question from a question tool.
+type Answer struct {
+	Header string `json:"header,omitempty"`
+	Choice string `json:"choice"`
+	Notes  string `json:"notes,omitempty"`
+}
+
+// HumanText returns what a human wrote or chose in this event, or "" when the event holds neither.
+func (e Event) HumanText() string {
+	if !e.Human {
+		return ""
+	}
+	if len(e.Answers) == 0 {
+		return e.Text
+	}
+	parts := make([]string, len(e.Answers))
+	for i, a := range e.Answers {
+		parts[i] = a.Choice
+		if a.Header != "" {
+			parts[i] = a.Header + ": " + a.Choice
+		}
+		if a.Notes != "" {
+			parts[i] += " (notes: " + a.Notes + ")"
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 // GitOp is a repository operation a step performed. The harness records it

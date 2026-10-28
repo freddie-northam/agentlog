@@ -74,9 +74,13 @@ View flags apply to the best match: `--tail N`, `--head N`,
 was given, `--grep` searches across them.
 
 `--user` (alias for `--kind owner`) selects human prompts for all three
-harnesses. It excludes subagent spawn prompts, peer and teammate messages,
-task notifications, compaction summaries, and injected instructions or command
-expansions. It composes with event ranges, `--grep`, `--head`, `--tail`,
+harnesses. For Claude it also selects a human's answers to AskUserQuestion
+(the option chosen, or the text typed), shown as
+`AskUserQuestion answered: <header>: <answer>` with any notes the human
+typed. Session summaries (`--list`, `--projects`) take their first and last
+prompt from the same human input. It excludes subagent spawn prompts, peer
+and teammate messages, task notifications, compaction summaries, and
+injected instructions or command expansions. It composes with event ranges, `--grep`, `--head`, `--tail`,
 `--branches`, `--full` and `--json`. Pasted text stays in; `[pasted]` and JSON
 `pasted` mark pastes/attachments when the harness records a paste marker.
 Older logs may not distinguish a paste from typed text, or an unmarked

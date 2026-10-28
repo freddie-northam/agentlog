@@ -222,12 +222,23 @@ func (c *Catalog) Enrich(ctx context.Context, ss []*transcript.Session) {
 	work.Do(ctx, len(todo), func(i int) {
 		s := todo[i]
 		p := c.provider(s.Provider)
+		subagent := s.ParentID != "" || s.AgentRole != ""
 		head, headErr := p.Load(s, transcript.Load{Window: transcript.Window{HeadBytes: 512 << 10}})
 		if headErr == nil {
 			for _, e := range head.Events {
-				if e.Kind == transcript.KindUser {
-					s.FirstPrompt = e.Text
+				if t := e.HumanText(); t != "" {
+					s.FirstPrompt = t
 					break
+				}
+			}
+			if s.FirstPrompt == "" && subagent {
+				// A subagent session has no human events, so its brief stands in.
+				// In a top-level session only a human's words describe it.
+				for _, e := range head.Events {
+					if e.Kind == transcript.KindUser {
+						s.FirstPrompt = e.Text
+						break
+					}
 				}
 			}
 			if s.Title == "" {
@@ -244,11 +255,20 @@ func (c *Catalog) Enrich(ctx context.Context, ss []*transcript.Session) {
 		}
 		for j := len(tail.Events) - 1; j >= 0; j-- {
 			e := tail.Events[j]
-			if s.LastPrompt == "" && e.Kind == transcript.KindUser {
-				s.LastPrompt = e.Text
+			if s.LastPrompt == "" {
+				s.LastPrompt = e.HumanText()
 			}
 			if s.LastSay == "" && e.Kind == transcript.KindAssistant {
 				s.LastSay = e.Text
+			}
+		}
+		// In a top-level session only a human's words describe it.
+		// A hand-back is a user-role event that no human wrote.
+		if s.LastPrompt == "" && subagent {
+			for j := len(tail.Events) - 1; j >= 0 && s.LastPrompt == ""; j-- {
+				if tail.Events[j].Kind == transcript.KindUser {
+					s.LastPrompt = tail.Events[j].Text
+				}
 			}
 		}
 		s.LastEvent = transcript.Newest(tail.Events)

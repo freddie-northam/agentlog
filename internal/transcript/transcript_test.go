@@ -27,3 +27,23 @@ func TestSkipsOrdersUnknownFirst(t *testing.T) {
 		t.Errorf("counts = ignored %v unknown %v", tr.Ignored, tr.Unknowns)
 	}
 }
+
+func TestHumanText(t *testing.T) {
+	answers := []Answer{{Header: "Scope", Choice: "Only the parser"}, {Header: "Old flag", Choice: "Yes, keep it for one release", Notes: "keep it small"}}
+	for _, tc := range []struct {
+		name string
+		e    Event
+		want string
+	}{
+		{"human prompt", Event{Human: true, Kind: KindUser, Text: "fix it"}, "fix it"},
+		{"non-human prompt", Event{Kind: KindUser, Text: "<agent-message>"}, ""},
+		{"human answers", Event{Human: true, Kind: KindTool, Answers: answers}, "Scope: Only the parser · Old flag: Yes, keep it for one release (notes: keep it small)"},
+		{"answer without header", Event{Human: true, Kind: KindTool, Answers: []Answer{{Choice: "Yes"}}}, "Yes"},
+		{"subagent answers", Event{Kind: KindTool, Answers: answers}, ""},
+		{"tool without answers", Event{Kind: KindTool, Tool: "Bash"}, ""},
+	} {
+		if got := tc.e.HumanText(); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

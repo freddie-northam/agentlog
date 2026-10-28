@@ -257,7 +257,8 @@ func TestTiedCountsOnlyTheTop(t *testing.T) {
 func transcriptOf(title string, ending string, kindText ...string) *transcript.Transcript {
 	t := &transcript.Transcript{Session: transcript.Session{Title: title, Ending: ending}}
 	for i := 0; i+1 < len(kindText); i += 2 {
-		t.Events = append(t.Events, transcript.Event{Kind: transcript.Kind(kindText[i]), Text: kindText[i+1]})
+		k := transcript.Kind(kindText[i])
+		t.Events = append(t.Events, transcript.Event{Kind: k, Human: k == transcript.KindUser, Text: kindText[i+1]})
 	}
 	return t
 }
@@ -377,7 +378,7 @@ func TestEnrichLeavesAnUnreadableSessionAlone(t *testing.T) {
 	// and does not take a model or title the head left blank.
 	p.heads = map[string]*transcript.Transcript{"gone": {
 		Session: transcript.Session{Model: "opus"},
-		Events:  []transcript.Event{{Kind: transcript.KindUser, Text: "first"}},
+		Events:  []transcript.Event{{Kind: transcript.KindUser, Human: true, Text: "first"}},
 	}}
 	c.Enrich(context.Background(), []*transcript.Session{s})
 	if s.FirstPrompt != "first" || s.Model != "opus" || s.Title != "kept" || s.Ending != "" || s.Unreadable {
@@ -654,5 +655,38 @@ func TestRankBreaksTiesTheSameWay(t *testing.T) {
 	b := &transcript.Session{Provider: transcript.Copilot, ID: "c0c0c0c0", Updated: at}
 	if one, other := order([]*transcript.Session{a, b}), order([]*transcript.Session{b, a}); !slices.Equal(one, other) {
 		t.Errorf("the same tie ranked %v one way and %v the other", one, other)
+	}
+}
+
+// A hand-back is a user-role event that no human wrote.
+// In a top-level session only a human's words describe it, and a subagent session falls back to its user events.
+func TestLastPromptIsHumanWords(t *testing.T) {
+	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+	human := func(text string) transcript.Event {
+		return transcript.Event{Kind: transcript.KindUser, Human: true, Text: text}
+	}
+	handback := transcript.Event{Kind: transcript.KindUser, Text: "[Subagent hand-back] done"}
+	answer := transcript.Event{Kind: transcript.KindTool, Human: true, Answers: []transcript.Answer{{Header: "Scope", Choice: "Only the parser"}}}
+	win := func(events ...transcript.Event) *transcript.Transcript { return &transcript.Transcript{Events: events} }
+	cases := []struct {
+		name       string
+		parent     string
+		head, tail *transcript.Transcript
+		want       [2]string
+	}{
+		{"human prompt before a hand-back", "", win(human("fix the scroll")), win(human("ship it"), handback), [2]string{"fix the scroll", "ship it"}},
+		{"only a hand-back in the tail", "", win(human("fix the scroll")), win(handback), [2]string{"fix the scroll", ""}},
+		{"last human event is an answer", "", win(human("fix the scroll")), win(human("start"), answer, transcript.Event{Kind: transcript.KindAssistant, Text: "ok"}), [2]string{"fix the scroll", "Scope: Only the parser"}},
+		{"subagent falls back to user events", "parent", win(transcript.Event{Kind: transcript.KindUser, Text: "do the work"}), win(transcript.Event{Kind: transcript.KindUser, Text: "do the work"}, transcript.Event{Kind: transcript.KindUser, Text: "and more"}), [2]string{"do the work", "and more"}},
+	}
+	for i, tc := range cases {
+		id := fmt.Sprintf("01a09000-0000-7000-8000-00000000010%d", i)
+		s := &transcript.Session{Provider: transcript.Codex, ID: id, ParentID: tc.parent, CWD: "/work/shop", Started: now.Add(-2 * time.Hour), Updated: now.Add(-time.Hour)}
+		c := &Catalog{Now: now, Providers: []Provider{&fakeProvider{name: transcript.Codex, sessions: []*transcript.Session{s},
+			heads: map[string]*transcript.Transcript{id: tc.head}, tails: map[string]*transcript.Transcript{id: tc.tail}}}}
+		c.Enrich(context.Background(), []*transcript.Session{s})
+		if got := [2]string{s.FirstPrompt, s.LastPrompt}; got != tc.want {
+			t.Errorf("%s: first and last prompt = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

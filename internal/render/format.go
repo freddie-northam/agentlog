@@ -327,6 +327,9 @@ func named(e transcript.Event) bool {
 func eventBody(e transcript.Event, o Options) string {
 	switch e.Kind {
 	case transcript.KindTool:
+		if len(e.Answers) > 0 && e.HumanText() != "" {
+			return e.Tool + " answered: " + e.HumanText()
+		}
 		s := e.Tool
 		if e.Input != "" {
 			s = strings.TrimSpace(s + " " + subject(e.Input, o.CWD))

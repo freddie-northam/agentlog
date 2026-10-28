@@ -879,6 +879,14 @@ func (b *builder) toolResult(e entry, bl block, line int) {
 		AgentID         string                    `json:"agentId"`
 		Interrupted     bool                      `json:"interrupted"`
 		Git             map[string]map[string]any `json:"gitOperation"`
+		Questions       []struct {
+			Question string `json:"question"`
+			Header   string `json:"header"`
+		} `json:"questions"`
+		Answers     map[string]string `json:"answers"`
+		Annotations map[string]struct {
+			Notes string `json:"notes"`
+		} `json:"annotations"`
 	}
 	if json.Unmarshal(e.ToolUseResult, &r) != nil {
 		return
@@ -898,6 +906,37 @@ func (b *builder) toolResult(e entry, bl block, line int) {
 		ev.Failed = true
 	}
 	ev.Git = gitOps(r.Git)
+	if len(r.Answers) > 0 {
+		ev.Answers = answersOf(r.Answers, r.Questions, func(q string) string { return r.Annotations[q].Notes })
+		ev.Human = b.t.Session.ParentID == "" && b.t.Session.AgentRole == ""
+	}
+}
+
+// answersOf lists answers in the order the questions were asked.
+// An answer with no matching question follows them, sorted by question text.
+func answersOf(answers map[string]string, questions []struct {
+	Question string `json:"question"`
+	Header   string `json:"header"`
+}, notes func(string) string) []transcript.Answer {
+	var out []transcript.Answer
+	seen := map[string]bool{}
+	for _, q := range questions {
+		if a, ok := answers[q.Question]; ok && !seen[q.Question] {
+			seen[q.Question] = true
+			out = append(out, transcript.Answer{Header: q.Header, Choice: a, Notes: notes(q.Question)})
+		}
+	}
+	var rest []string
+	for q := range answers {
+		if !seen[q] {
+			rest = append(rest, q)
+		}
+	}
+	sort.Strings(rest)
+	for _, q := range rest {
+		out = append(out, transcript.Answer{Choice: answers[q], Notes: notes(q)})
+	}
+	return out
 }
 
 // gitOps reads a tool result's gitOperation, which Claude Code writes as
