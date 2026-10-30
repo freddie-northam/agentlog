@@ -294,8 +294,8 @@ func (b *builder) cwdOr() string {
 	return b.t.Session.CWD
 }
 
-// selectBranch drops every event whose record is not on the chain walked back
-// from the newest record. With keepAll the events stay and are marked instead.
+// selectBranch drops every event whose record is neither on the live chain nor in a model message with a record on it.
+// The live chain is the one walked back from the newest record. With keepAll the events stay and are marked instead.
 func (b *builder) selectBranch(keepAll bool) {
 	if b.head == "" {
 		return

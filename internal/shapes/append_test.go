@@ -73,19 +73,25 @@ func numberDrift(t *testing.T, p catalog.Provider, s *transcript.Session) []stri
 	if err != nil {
 		return nil
 	}
-	full := loadWith(t, p, s, last, data)
-	if full == nil {
+	full := loadWith(t, p, s, last, data, transcript.Load{})
+	marked := loadWith(t, p, s, last, data, transcript.Load{Branches: true})
+	if full == nil || marked == nil {
 		return nil
+	}
+	rewound := map[int]bool{} // a rewind hides whole records, so a line is enough
+	for _, e := range marked.Events {
+		rewound[e.Line] = rewound[e.Line] || e.Abandoned
 	}
 	var problems []string
 	for _, cut := range lineEnds(data, 8) {
-		prefix := loadWith(t, p, s, last, data[:cut])
+		prefix := loadWith(t, p, s, last, data[:cut], transcript.Load{})
 		if prefix == nil {
 			continue
 		}
 		for i, e := range prefix.Events {
 			// A prompt queued while the model was busy is a placeholder until its delivery takes it down, by design.
-			if e.Tag == transcript.TagUnanswered {
+			// A rewind written after the cut hides the turn it left, and every later number moves with it, by design.
+			if e.Tag == transcript.TagUnanswered || rewound[e.Line] {
 				break
 			}
 			if i >= len(full.Events) {
@@ -93,8 +99,8 @@ func numberDrift(t *testing.T, p catalog.Provider, s *transcript.Session) []stri
 				break
 			}
 			f := full.Events[i]
-			if f.Kind != e.Kind || f.Tool != e.Tool || f.Line != e.Line {
-				problems = append(problems, fmt.Sprintf("cut at byte %d: #%d was %s %q line %d, is now %s %q line %d", cut, e.Index, e.Kind, e.Tool, e.Line, f.Kind, f.Tool, f.Line))
+			if f.Index != e.Index || f.Kind != e.Kind || f.Tool != e.Tool || f.Line != e.Line {
+				problems = append(problems, fmt.Sprintf("cut at byte %d: #%d was %s %q line %d, is now #%d %s %q line %d", cut, e.Index, e.Kind, e.Tool, e.Line, f.Index, f.Kind, f.Tool, f.Line))
 				break
 			}
 		}
@@ -103,7 +109,7 @@ func numberDrift(t *testing.T, p catalog.Provider, s *transcript.Session) []stri
 }
 
 // loadWith loads the session with its last file replaced by data, written under the same name in a fresh folder.
-func loadWith(t *testing.T, p catalog.Provider, s *transcript.Session, last string, data []byte) *transcript.Transcript {
+func loadWith(t *testing.T, p catalog.Provider, s *transcript.Session, last string, data []byte, opts transcript.Load) *transcript.Transcript {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), filepath.Base(last))
 	if err := os.WriteFile(path, data, 0o600); err != nil {
@@ -111,7 +117,7 @@ func loadWith(t *testing.T, p catalog.Provider, s *transcript.Session, last stri
 	}
 	cp := *s
 	cp.Files = append(append([]string(nil), s.Files[:len(s.Files)-1]...), path)
-	tr, err := p.Load(&cp, transcript.Load{})
+	tr, err := p.Load(&cp, opts)
 	if err != nil {
 		return nil
 	}
