@@ -51,10 +51,10 @@ commit that fixes it; that commit is the record.
   resumes, Claude Code links the new prompt to the record written just before
   the handback turn, usually an attachment. The walk back from the newest record
   then leaves the `SubagentHandback` call and its result off the chain, so the
-  default view hides them as rewound turns. In about 50 subagent logs out of
-  2,773 on one machine, the same shape hides a whole earlier turn, often the
-  subagent's final answer. The harness may drop that turn from the resumed
-  context on purpose, so it is not yet clear whether a view should show it.
+  default view hides them as rewound turns. On one machine, 7 of 2,773
+  subagent logs have this shape. The harness may drop that turn from the
+  resumed context on purpose, so it is not yet clear whether a view should
+  show it.
   `TestNumbersSurviveAppend` stops at these turns, as at any rewind.
 
 ## Not acting on
