@@ -818,3 +818,35 @@ func TestLoadIgnoresOwnerAndSuppressionRecords(t *testing.T) {
 		t.Errorf("Ignored = %v, want each type counted twice", tr.Ignored)
 	}
 }
+
+func TestLoadCountsEachRewoundBranch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), sessionID+".jsonl")
+	writeJSONL(t, path, []map[string]any{
+		withUUID(user("first ask"), "u1", ""),
+		withUUID(assistant(map[string]any{"type": "text", "text": "first answer"}), "a1", "u1"),
+		withUUID(user("rewound once"), "r1", "a1"),
+		withUUID(user("rewound twice"), "r2", "a1"),
+		withUUID(user("kept ask"), "u2", "a1"),
+	})
+	tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, Files: []string{path}}, transcript.Load{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Hidden != 2 || len(tr.Notes) != 1 || !strings.Contains(tr.Notes[0], "2 events on 2 branches") {
+		t.Errorf("hidden = %d notes = %v", tr.Hidden, tr.Notes)
+	}
+}
+
+func TestGitOpsOrdersUnknownOperationsByName(t *testing.T) {
+	ops := gitOps(map[string]map[string]any{
+		"tag":   {"ref": "v1"},
+		"stash": {"ref": "stash@{0}"},
+	})
+	var got []string
+	for _, op := range ops {
+		got = append(got, op.Action)
+	}
+	if want := "stash tag"; strings.Join(got, " ") != want {
+		t.Errorf("order = %q, want %q", strings.Join(got, " "), want)
+	}
+}
