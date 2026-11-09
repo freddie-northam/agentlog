@@ -47,6 +47,10 @@ of its behaviour, including the edge cases real logs throw at it.
 - `scripts/coverage.sh --check` must pass before committing; the goal is 95%.
 - After adding tests, run `scripts/coverage.sh --update` to record the new
   baseline.
+- Coverage shows that a line ran, not that a test would catch a mistake in
+  it. After you change tests or parsing, run `scripts/mutation.sh --check`
+  on the packages you touched, and `--update` when the score rises. It needs
+  gremlins, and a full run takes several minutes.
 - Test behaviour, not lines. Code that no real case reaches is a candidate for
   deletion.
 
@@ -87,6 +91,7 @@ drive the installed binary the way an agent would.
 ```sh
 GOCACHE=$TMPDIR/gocache go test ./...
 GOCACHE=$TMPDIR/gocache scripts/coverage.sh --check
+GOCACHE=$TMPDIR/gocache scripts/mutation.sh --check ./internal/claude
 GOCACHE=$TMPDIR/gocache go build -o bin/agentlog ./cmd/agentlog
 GOCACHE=$TMPDIR/gocache go build -o bin/agentlog-usage ./cmd/agentlog-usage
 ```
