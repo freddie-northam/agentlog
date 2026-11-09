@@ -794,3 +794,27 @@ func TestLoadIgnoresForkContextRef(t *testing.T) {
 		t.Errorf("Ignored = %v, want fork-context-ref counted once", tr.Ignored)
 	}
 }
+
+func TestLoadIgnoresOwnerAndSuppressionRecords(t *testing.T) {
+	path := filepath.Join(t.TempDir(), sessionID+".jsonl")
+	writeJSONL(t, path, []map[string]any{
+		{"type": "session-owner", "sessionId": sessionID, "accountUuid": "a1", "organizationUuid": "o1"},
+		user("fix the build"),
+		{"type": "history-suppression", "sessionId": sessionID, "ts": "2026-11-01T00:00:00.000Z", "cause": "migration"},
+		{"type": "history-suppression", "sessionId": sessionID, "ts": "2026-11-01T00:00:01.000Z", "cause": "restored_owner_mismatch", "vetoedAgainstAccountUuid": "a2"},
+		{"type": "session-owner", "sessionId": sessionID, "accountUuid": "a1", "organizationUuid": "o1"},
+	})
+	tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, Files: []string{path}}, transcript.Load{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kinds(tr); got != "user" {
+		t.Errorf("kinds = %q, want only the prompt", got)
+	}
+	if len(tr.Unknowns) != 0 {
+		t.Errorf("Unknowns = %v, want none", tr.Unknowns)
+	}
+	if tr.Ignored["session-owner"] != 2 || tr.Ignored["history-suppression"] != 2 {
+		t.Errorf("Ignored = %v, want each type counted twice", tr.Ignored)
+	}
+}
