@@ -218,3 +218,17 @@ func TestMergeKeepsWhatEachPartKnows(t *testing.T) {
 		t.Error("merge changed its inputs")
 	}
 }
+
+// Claude Code keeps ASCII letters and digits in a project's folder name, and writes "-" for every other character.
+func TestEncodeDirKeepsOnlyASCIILettersAndDigits(t *testing.T) {
+	for in, want := range map[string]string{
+		"/work/shop":        "-work-shop",
+		"azAZ09":            "azAZ09",
+		"`{@[/:":            "------",
+		"/Users/me/é_x.y z": "-Users-me---x-y-z",
+	} {
+		if got := encodeDir(in); got != want {
+			t.Errorf("encodeDir(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
