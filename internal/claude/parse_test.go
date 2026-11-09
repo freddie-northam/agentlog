@@ -713,109 +713,56 @@ func TestLoadNotesWhereTheSessionRan(t *testing.T) {
 	}
 }
 
-// Since 2.1.300 Claude Code keeps a copy of every request it sent the model.
-// The conversation is already in the log, so the copies add no events; they
-// are counted, and never reported as records this build cannot read.
-func TestLoadIgnoresRequestCopies(t *testing.T) {
-	path := filepath.Join(t.TempDir(), sessionID+".jsonl")
-	writeJSONL(t, path, []map[string]any{
-		user("do it"),
-		{"type": "api-request-shape", "shapeHash": "a1", "shape": map[string]any{"system": []any{map[string]any{"type": "text", "text": "system prompt"}}}},
-		{"type": "api-request-blob", "hash": "b1", "message": map[string]any{"role": "user", "content": "do it"}},
-		{"type": "api-request-blob", "hash": "b2", "agentId": "a2", "message": map[string]any{"role": "system", "content": []any{map[string]any{"type": "text", "text": "reminder"}}}},
-		{"type": "api-request", "id": "r1", "shapeHash": "a1", "tail": []any{"b1", "b2"}},
-	})
-	tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, Files: []string{path}}, transcript.Load{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := kinds(tr); got != "user" {
-		t.Errorf("kinds = %q, want only the prompt", got)
-	}
-	if len(tr.Unknowns) != 0 {
-		t.Errorf("Unknowns = %v, want none", tr.Unknowns)
-	}
-	want := map[string]int{"api-request": 1, "api-request-shape": 1, "api-request-blob": 2}
-	for k, n := range want {
-		if tr.Ignored[k] != n {
-			t.Errorf("Ignored[%q] = %d, want %d (all: %v)", k, tr.Ignored[k], n, tr.Ignored)
-		}
-	}
-}
-
-// Recent Claude Code versions write which artifacts a session watches, its artifact reactions, and the tools it used.
-// The log already holds those tool calls as events, so these records add none.
-func TestLoadIgnoresArtifactAndToolBookkeeping(t *testing.T) {
-	path := filepath.Join(t.TempDir(), sessionID+".jsonl")
-	writeJSONL(t, path, []map[string]any{
-		user("do it"),
-		{"type": "artifact-comment-monitor", "v": 1, "sessionId": sessionID, "artifacts": map[string]any{"a1": map[string]any{"state": "armed", "writtenAtMs": 1, "title": "plan"}}},
-		{"type": "artifact-autoreact-ledger", "v": 1, "sessionId": sessionID, "accountUuid": "u1", "artifacts": map[string]any{"a1": map[string]any{"savedAt": 1, "everBaselined": true, "threads": []any{}}}},
-		{"type": "artifact-autoreact-ledger", "v": 1, "sessionId": sessionID, "accountUuid": "u1", "artifacts": map[string]any{}},
-		{"type": "tools-used", "sessionId": sessionID, "tools": []any{"Bash", "Read"}},
-	})
-	tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, Files: []string{path}}, transcript.Load{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := kinds(tr); got != "user" {
-		t.Errorf("kinds = %q, want only the prompt", got)
-	}
-	if len(tr.Unknowns) != 0 {
-		t.Errorf("Unknowns = %v, want none", tr.Unknowns)
-	}
-	want := map[string]int{"artifact-comment-monitor": 1, "artifact-autoreact-ledger": 2, "tools-used": 1}
-	for k, n := range want {
-		if tr.Ignored[k] != n {
-			t.Errorf("Ignored[%q] = %d, want %d (all: %v)", k, tr.Ignored[k], n, tr.Ignored)
-		}
-	}
-}
-
-// A forked subagent's log opens with a link to the parent record it forked from.
-// The parent is already known from the folder the log sits in, so the link adds no event.
-func TestLoadIgnoresForkContextRef(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "agent-f1.jsonl")
-	writeJSONL(t, path, []map[string]any{
-		{"type": "fork-context-ref", "agentId": "f1", "parentSessionId": sessionID, "parentLastUuid": "p9", "contextLength": 10},
-		user("do the one directive"),
-	})
-	tr, err := (&Provider{}).Load(&transcript.Session{ID: "f1", ParentID: sessionID, Files: []string{path}}, transcript.Load{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := kinds(tr); got != "user" {
-		t.Errorf("kinds = %q, want only the prompt", got)
-	}
-	if len(tr.Unknowns) != 0 {
-		t.Errorf("Unknowns = %v, want none", tr.Unknowns)
-	}
-	if tr.Ignored["fork-context-ref"] != 1 {
-		t.Errorf("Ignored = %v, want fork-context-ref counted once", tr.Ignored)
-	}
-}
-
-func TestLoadIgnoresOwnerAndSuppressionRecords(t *testing.T) {
-	path := filepath.Join(t.TempDir(), sessionID+".jsonl")
-	writeJSONL(t, path, []map[string]any{
-		{"type": "session-owner", "sessionId": sessionID, "accountUuid": "a1", "organizationUuid": "o1"},
-		user("fix the build"),
-		{"type": "history-suppression", "sessionId": sessionID, "ts": "2026-11-01T00:00:00.000Z", "cause": "migration"},
-		{"type": "history-suppression", "sessionId": sessionID, "ts": "2026-11-01T00:00:01.000Z", "cause": "restored_owner_mismatch", "vetoedAgainstAccountUuid": "a2"},
-		{"type": "session-owner", "sessionId": sessionID, "accountUuid": "a1", "organizationUuid": "o1"},
-	})
-	tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, Files: []string{path}}, transcript.Load{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := kinds(tr); got != "user" {
-		t.Errorf("kinds = %q, want only the prompt", got)
-	}
-	if len(tr.Unknowns) != 0 {
-		t.Errorf("Unknowns = %v, want none", tr.Unknowns)
-	}
-	if tr.Ignored["session-owner"] != 2 || tr.Ignored["history-suppression"] != 2 {
-		t.Errorf("Ignored = %v, want each type counted twice", tr.Ignored)
+// Bookkeeping records hold no step of the conversation, so they add no event.
+// They are counted, and never reported as records this build cannot read.
+func TestLoadIgnoresBookkeeping(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		parent  string // set for a subagent's log
+		records []map[string]any
+		want    map[string]int
+	}{
+		{"request copies since 2.1.300, already in the log as the conversation", "", []map[string]any{
+			{"type": "api-request-shape", "shapeHash": "a1", "shape": map[string]any{"system": []any{map[string]any{"type": "text", "text": "system prompt"}}}},
+			{"type": "api-request-blob", "hash": "b1", "message": map[string]any{"role": "user", "content": "do it"}},
+			{"type": "api-request-blob", "hash": "b2", "agentId": "a2", "message": map[string]any{"role": "system", "content": []any{map[string]any{"type": "text", "text": "reminder"}}}},
+			{"type": "api-request", "id": "r1", "shapeHash": "a1", "tail": []any{"b1", "b2"}},
+		}, map[string]int{"api-request": 1, "api-request-shape": 1, "api-request-blob": 2}},
+		{"artifact watch state and tools used, already in the log as tool calls", "", []map[string]any{
+			{"type": "artifact-comment-monitor", "v": 1, "sessionId": sessionID, "artifacts": map[string]any{"a1": map[string]any{"state": "armed", "writtenAtMs": 1, "title": "plan"}}},
+			{"type": "artifact-autoreact-ledger", "v": 1, "sessionId": sessionID, "accountUuid": "u1", "artifacts": map[string]any{"a1": map[string]any{"savedAt": 1, "everBaselined": true, "threads": []any{}}}},
+			{"type": "artifact-autoreact-ledger", "v": 1, "sessionId": sessionID, "accountUuid": "u1", "artifacts": map[string]any{}},
+			{"type": "tools-used", "sessionId": sessionID, "tools": []any{"Bash", "Read"}},
+		}, map[string]int{"artifact-comment-monitor": 1, "artifact-autoreact-ledger": 2, "tools-used": 1}},
+		{"a fork's link to its parent, already known from the log's folder", sessionID, []map[string]any{
+			{"type": "fork-context-ref", "agentId": "f1", "parentSessionId": sessionID, "parentLastUuid": "p9", "contextLength": 10},
+		}, map[string]int{"fork-context-ref": 1}},
+		{"session owner and hidden history, which stays in the log", "", []map[string]any{
+			{"type": "session-owner", "sessionId": sessionID, "accountUuid": "a1", "organizationUuid": "o1"},
+			{"type": "history-suppression", "sessionId": sessionID, "ts": "2026-11-01T00:00:00.000Z", "cause": "migration"},
+			{"type": "history-suppression", "sessionId": sessionID, "ts": "2026-11-01T00:00:01.000Z", "cause": "restored_owner_mismatch", "vetoedAgainstAccountUuid": "a2"},
+			{"type": "session-owner", "sessionId": sessionID, "accountUuid": "a1", "organizationUuid": "o1"},
+		}, map[string]int{"session-owner": 2, "history-suppression": 2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), sessionID+".jsonl")
+			writeJSONL(t, path, append([]map[string]any{user("do it")}, tc.records...))
+			tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, ParentID: tc.parent, Files: []string{path}}, transcript.Load{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := kinds(tr); got != "user" {
+				t.Errorf("kinds = %q, want only the prompt", got)
+			}
+			if len(tr.Unknowns) != 0 {
+				t.Errorf("Unknowns = %v, want none", tr.Unknowns)
+			}
+			for k, n := range tc.want {
+				if tr.Ignored[k] != n {
+					t.Errorf("Ignored[%q] = %d, want %d (all: %v)", k, tr.Ignored[k], n, tr.Ignored)
+				}
+			}
+		})
 	}
 }
 
