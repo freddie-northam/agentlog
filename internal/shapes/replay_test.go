@@ -199,6 +199,7 @@ func outcome(t *testing.T, s shapes.Shape) string {
 		len(tr.Events), unread, ignored, tr.Hidden, kinds)
 }
 
+// knownEmpty holds shapes whose raw record has no input. Add one only after you check the raw log, because a moved field also looks like this.
 var knownEmpty = map[string]string{
 	"codex/event_msg:item_completed:Extension/34542239": "clock.sleep records only how long it slept",
 	"copilot/tool.execution_start/a633a709":             "redaction turns the patch into a placeholder that does not parse",
@@ -336,6 +337,7 @@ func at(lines []string, i int) string {
 	return "(nothing)"
 }
 
+// Without this check, -update writes an empty call into the golden as correct.
 func TestACallWithItsInputMovedIsUnreadable(t *testing.T) {
 	for _, tc := range []struct{ name, block string }{
 		{"input renamed", `{"type":"tool_use","id":"c1","name":"Bash","arguments":{"command":"ls"}}`},

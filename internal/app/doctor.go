@@ -213,6 +213,7 @@ func examine(env Env, ss []*transcript.Session, opts options) health {
 	return h
 }
 
+// add counts one transcript's empty calls. Versions counts sessions, as unread.Versions does.
 func (b *callsWithoutInput) add(t *transcript.Transcript) {
 	n := 0
 	for _, e := range t.Events {
