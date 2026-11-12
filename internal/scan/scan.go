@@ -9,6 +9,7 @@ import (
 	"context"
 	"io"
 	"regexp"
+	"regexp/syntax"
 	"strings"
 	"sync"
 
@@ -61,11 +62,13 @@ func Sessions(ctx context.Context, ss []*transcript.Session, re *regexp.Regexp) 
 	var mu sync.Mutex
 
 	lit := scanLiteral(re)
+	pattern := strings.TrimPrefix(re.String(), "(?i)")
+	confirm := strings.ContainsAny(pattern, `\.+*?()|[]{}^$`)
 	work.Do(ctx, len(ss), func(i int) {
 		if ctx.Err() != nil {
 			return
 		}
-		m := &matcher{re: re, lit: lit, buf: make([]byte, chunk)}
+		m := &matcher{re: re, lit: lit, confirm: confirm, buf: make([]byte, chunk)}
 		if lit != nil {
 			m.fold = make([]byte, chunk)
 		}
@@ -121,48 +124,62 @@ func Sessions(ctx context.Context, ss []*transcript.Session, re *regexp.Regexp) 
 // scanLiteral. A prefilter may say yes too often, and must never say no
 // wrongly, because the parse behind it is what decides.
 type matcher struct {
-	re   *regexp.Regexp
-	lit  []byte // lowercased literal, nil when the pattern needs the engine
-	buf  []byte // the chunk being read
-	fold []byte // the chunk, lowercased
+	confirm bool // partial literals need the regexp to confirm a match
+	re      *regexp.Regexp
+	lit     []byte // lowercased literal, nil when the pattern needs the engine
+	buf     []byte // the chunk being read
+	fold    []byte // the chunk, lowercased
 }
 
 func (m *matcher) match(b []byte) bool {
 	if m.lit == nil {
 		return m.re.Match(b)
 	}
-	return bytes.Contains(lower(m.fold[:len(b)], b), m.lit)
+	return bytes.Contains(lower(m.fold[:len(b)], b), m.lit) && (!m.confirm || m.re.Match(b))
 }
 
-// scanLiteral returns the lowercased text to look for in the raw bytes on
-// behalf of a case-insensitive ASCII literal pattern, and nil when the pattern
-// needs the regexp engine.
-//
-// It is the longest run of the pattern that JSON cannot have written
-// differently. A person's words are stored escaped: the sentence "scroll
-// jump" may be `scroll\njump` in the file, and `say "hi"` is `say \"hi\"`, so
-// searching the raw bytes for the pattern itself finds neither. Whatever the
-// escaping did, it did at a space, a quote, a backslash or a control
-// character, so the longest run without one of those is still there to be
-// found. The full pattern is applied afterwards to the decoded events.
+// scanLiteral selects a substring that every match must contain.
+// JSON can escape spaces, quotes, control characters and non-ASCII runes, so only unescapable runs can filter raw bytes.
+// The full pattern is applied afterwards to the decoded events.
 func scanLiteral(re *regexp.Regexp) []byte {
 	s, ok := strings.CutPrefix(re.String(), "(?i)")
-	if !ok || s == "" || strings.ContainsAny(s, `\.+*?()|[]{}^$`) {
+	parsed, err := syntax.Parse(s, syntax.Perl|syntax.FoldCase)
+	if !ok || err != nil {
 		return nil
 	}
 	best := ""
-	for _, run := range strings.FieldsFunc(s, escapable) {
-		if len(run) > len(best) {
-			best = run
+	for _, literal := range requiredLiterals(parsed) {
+		for _, run := range strings.FieldsFunc(literal, escapable) {
+			if len(run) > len(best) {
+				best = run
+			}
 		}
 	}
 	if len(best) < minLiteral {
-		// Too short to filter with: it would match nearly every log and turn
-		// the prefilter into a full parse of the corpus. The engine, reading
-		// raw bytes, is the better bet for these.
+		// Too short to filter with: it would match nearly every log and turn the prefilter into a full parse of the corpus.
+		// The engine, reading raw bytes, is the better bet for these.
 		return nil
 	}
 	return []byte(strings.ToLower(best))
+}
+
+// requiredLiterals lists the literal strings that every match of re must contain.
+func requiredLiterals(re *syntax.Regexp) []string {
+	switch re.Op {
+	case syntax.OpLiteral:
+		return []string{string(re.Rune)}
+	case syntax.OpCapture:
+		if len(re.Sub) == 1 {
+			return requiredLiterals(re.Sub[0])
+		}
+	case syntax.OpConcat:
+		var literals []string
+		for _, sub := range re.Sub {
+			literals = append(literals, requiredLiterals(sub)...)
+		}
+		return literals
+	}
+	return nil
 }
 
 // escapable reports whether a character may be written differently in JSON

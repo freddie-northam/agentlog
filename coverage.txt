@@ -1,4 +1,4 @@
-TOTAL                   95.7%   8046 statements
+TOTAL                   95.7%   8059 statements
 cmd/agentlog             0.0%     14 statements
 internal/app            94.7%   1279 statements
 internal/catalog        99.8%    441 statements
@@ -14,7 +14,7 @@ internal/monitor        96.4%     55 statements
 internal/patch          98.6%     71 statements
 internal/private        95.8%     24 statements
 internal/render         97.2%    916 statements
-internal/scan           98.6%     72 statements
+internal/scan           98.8%     85 statements
 internal/screens       100.0%    212 statements
 internal/shapes         93.3%    193 statements
 internal/shell          97.7%    130 statements

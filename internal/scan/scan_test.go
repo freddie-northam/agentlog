@@ -63,6 +63,7 @@ func TestSessionsNeverMissesWhatTheRegexpEngineFinds(t *testing.T) {
 		"(?i)pgvector", "(?i)PGVECTOR", "(?i)ready", "(?i)absent",
 		`(?i)failed: \d+`, `(?i)go test`, `(?i)/work/shop`, `(?i)a\.go`,
 		"(?i)f.iled", "(?i)^", "(?i)(pg|my)vector",
+		`(?i)ready\nfail`,
 	}
 	for _, p := range patterns {
 		t.Run(p, func(t *testing.T) {
@@ -96,13 +97,23 @@ func TestScanLiteral(t *testing.T) {
 		pattern, want string
 	}{
 		{"(?i)pgvector", "pgvector"},
+		{`(?i)app/page\.tsx`, "app/page.tsx"},
+		{"(?i)app/page.tsx", "app/page"},
+		{"(?i)page.tsx", "page"},
+		{"(?i)f.iled", "iled"},
+		{`(?i)(pg|my)vector`, "vector"},
+		{`(?i)failed: \d+`, "failed:"},
+		{"(?i)foo.*bar", "foo"},
+		{"(?i)x+vector", "vector"},
+		{"(?i)^", ""},
+
 		{"(?i)PgVector", "pgvector"},
 		// A space in the pattern may be a newline in the log, so only the
 		// longest unbreakable run is searched for.
 		{"(?i)two words", "words"},
 		{"(?i)fix the scroll jump", "scroll"},
 		{`(?i)say "hi" now`, "say"},
-		{`(?i)a\.go`, ""},           // escaped, so the engine decides
+		{`(?i)a\.go`, "a.go"},
 		{"(?i)a.go", ""},            // a metacharacter
 		{"(?i)(a|b)", ""},           //
 		{"pgvector", ""},            // case-sensitive: folding would widen it
@@ -135,6 +146,14 @@ func BenchmarkScan(b *testing.B) {
 	b.Run("literal", func(b *testing.B) {
 		b.SetBytes(int64(sb.Len()))
 		re := regexp.MustCompile(`(?i)pgvector`)
+		for b.Loop() {
+			Sessions(b.Context(), ss, re)
+		}
+	})
+
+	b.Run("dotted", func(b *testing.B) {
+		b.SetBytes(int64(sb.Len()))
+		re := regexp.MustCompile(`(?i)pgvec.or`)
 		for b.Loop() {
 			Sessions(b.Context(), ss, re)
 		}
