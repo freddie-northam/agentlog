@@ -217,12 +217,12 @@ func examine(env Env, ss []*transcript.Session, opts options) health {
 func (b *callsWithoutInput) add(t *transcript.Transcript) {
 	n := 0
 	for _, e := range t.Events {
-		if !t.NoInput(e) {
+		if !e.NoInput() {
 			continue
 		}
 		n++
 		if b.Ref == "" {
-			b.Ref = fmt.Sprintf("%s#%d", render.Ref(&t.Session), e.Index)
+			b.Ref = refOf(t, e)
 		}
 	}
 	if n == 0 {
@@ -251,9 +251,20 @@ func sampleOf(t *transcript.Transcript, name string) (ref, sample string) {
 		if body == "" {
 			body = strings.TrimSpace(e.Tool + " " + e.Input + " " + e.Output)
 		}
-		return fmt.Sprintf("%s#%d", render.Ref(&t.Session), e.Index), body
+		return refOf(t, e), body
 	}
 	return render.Ref(&t.Session), ""
+}
+
+// refOf is the ref that opens e. doctor numbers rewound turns too, so the ref needs --branches when t has any.
+func refOf(t *transcript.Transcript, e transcript.Event) string {
+	ref := fmt.Sprintf("%s#%d", render.Ref(&t.Session), e.Index)
+	for _, x := range t.Events {
+		if x.Abandoned {
+			return ref + " --branches"
+		}
+	}
+	return ref
 }
 
 // declared finds a table entry for a type the reader could not read. When one

@@ -119,7 +119,7 @@ func TestReadersReadEveryShapeEverSeen(t *testing.T) {
 // unreadable is an outcome a reader has to be changed for: a record lost,
 // or one it had no case for. Accepting it into the golden would bless it.
 func unreadable(outcome string) bool {
-	return strings.HasPrefix(outcome, "DROPPED") || strings.HasPrefix(outcome, "NOT READ") ||
+	return strings.HasPrefix(outcome, "DROPPED") || strings.HasPrefix(outcome, "NOT READ") || strings.HasPrefix(outcome, "EMPTY") ||
 		!strings.Contains(outcome, "unread=0 ")
 }
 
@@ -191,7 +191,7 @@ func outcome(t *testing.T, s shapes.Shape) string {
 		return "DROPPED — nothing came back, and nothing said why"
 	}
 	for _, e := range tr.Events {
-		if tr.NoInput(e) && knownEmpty[s.Key] == "" {
+		if e.NoInput() && knownEmpty[s.Key] == "" {
 			return "EMPTY: a call came back with no input, so a field it reads has moved"
 		}
 	}
@@ -345,7 +345,7 @@ func TestACallWithItsInputMovedIsUnreadable(t *testing.T) {
 	} {
 		raw := `{"type":"assistant","uuid":"u1","parentUuid":null,"sessionId":"s","timestamp":"2026-11-11T10:00:00Z","version":"2.1.322",` +
 			`"message":{"id":"m1","role":"assistant","content":[` + tc.block + `]}}`
-		if line := outcome(t, shapes.Of(transcript.Claude, "", []byte(raw))); !unreadable(line) {
+		if line := outcome(t, shapes.Of(transcript.Claude, "", []byte(raw))); !strings.HasPrefix(line, "EMPTY") {
 			t.Errorf("%s: replayed as %q, which the golden would accept", tc.name, line)
 		}
 	}

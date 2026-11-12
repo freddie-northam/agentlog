@@ -181,6 +181,8 @@ type Event struct {
 
 	CallID string `json:"-"` // provider call id, used while pairing results
 	Line   int    `json:"line"`
+
+	standIn bool // built by Generic: read by shape, so its fields are guesses, not a reader's case
 }
 
 // GitOp is a repository operation a step performed. The harness records it
@@ -365,12 +367,12 @@ func (t *Transcript) Unknown(recordType string) {
 // Generic builds the stand-in event for a record this build cannot read. The
 // flattening is the caller's, so that this package stays free of it.
 func Generic(recordType, text string, at time.Time, line int) Event {
-	return Event{Kind: KindRecord, Tag: recordType, Text: text, Time: at, Line: line}
+	return Event{Kind: KindRecord, Tag: recordType, Text: text, Time: at, Line: line, standIn: true}
 }
 
-// NoInput reports a call of a known record type that this build read nothing from.
-func (t *Transcript) NoInput(e Event) bool {
-	if t.Unknowns[e.Tag] > 0 {
+// NoInput reports a call that a reader case built and read nothing into.
+func (e Event) NoInput() bool {
+	if e.standIn {
 		return false
 	}
 	switch e.Kind {

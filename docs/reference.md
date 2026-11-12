@@ -266,13 +266,17 @@ log.
 
 A field can also move inside a record type this build knows. The type still
 reads, so the share read does not fall, but the call comes back empty: a
-command with no command, an edit with no file. `doctor` counts those calls,
-with the versions they came from and a ref that opens one. On logs that read
-correctly the count is zero, so any count is worth a look. A few calls carry
-no input in the log itself, for example a Codex web search that opened a page
-with no address. The ref shows which kind it is in one call. The replay test
-refuses an empty call for the same reason, except for the corpus shapes it
-names with their reasons.
+command with no command, an edit with no file. `doctor` counts those calls
+(`calls_without_input` in `--json`), with the versions they came from and a
+ref that opens one. A few calls carry no input in the log itself, for example
+a Codex web search that opened a page with no address, or a Codex
+`clock.sleep`, so a small steady count can be normal. A count that appears or
+grows with a new version is the sign of a moved field. The count sees only a
+call that lost all its input. A call that keeps one field and loses another,
+such as an edit with its file but no change, is not counted, so a count of
+zero does not prove that nothing moved. The replay test refuses an empty call
+for the same reason, except for the corpus shapes it names with their
+reasons.
 
 Each reader also states what it knows as a table (`internal/spec`), checked
 against the reader by a test, so a fix is usually one line. A record type can
