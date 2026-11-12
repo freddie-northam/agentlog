@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Ryheff24/agentlog/internal/jsonl"
 	"github.com/Ryheff24/agentlog/internal/transcript"
 )
 
@@ -358,8 +359,8 @@ func TestLoadWindows(t *testing.T) {
 		evs = append(evs, map[string]any{"type": "user.message", "data": map[string]any{"content": strings.Repeat("x", 100) + string(rune('A'+i%26))}})
 	}
 	path := writeEvents(t, home, evs)
-	head := loadWith(t, home, path, transcript.Load{Window: transcript.Window{HeadBytes: 600}})
-	tail := loadWith(t, home, path, transcript.Load{Window: transcript.Window{TailBytes: 600}})
+	head := loadWith(t, home, path, transcript.Load{Window: jsonl.Window{HeadBytes: 600}})
+	tail := loadWith(t, home, path, transcript.Load{Window: jsonl.Window{TailBytes: 600}})
 	if len(head.Events) == 0 || len(head.Events) >= 50 || !strings.HasSuffix(head.Events[0].Text, "A") {
 		t.Errorf("head = %d events starting %q", len(head.Events), head.Events[0].Text)
 	}

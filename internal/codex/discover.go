@@ -262,12 +262,12 @@ func threadIDFromName(name string) string {
 // readMeta reads a page's session_meta header. ok is false for a log that has
 // none yet; err is set for one that could not be read.
 func readMeta(path string, m *sessionMeta) (ok bool, err error) {
-	err = jsonl.Each(path, func(line []byte, n int) error {
+	err = jsonl.Read(path, jsonl.Window{}, func(l jsonl.Line) error {
 		var rec struct {
 			Type    string      `json:"type"`
 			Payload sessionMeta `json:"payload"`
 		}
-		if json.Unmarshal(line, &rec) == nil && rec.Type == "session_meta" {
+		if json.Unmarshal(l.Bytes, &rec) == nil && rec.Type == "session_meta" {
 			*m = rec.Payload
 			ok = m.ID != ""
 		}
@@ -329,12 +329,12 @@ func groupThreads(pages []*page, titles map[string]string) []*transcript.Session
 // titles reads ~/.codex/session_index.jsonl (thread id -> latest name).
 func (p *Provider) titles() map[string]string {
 	m := map[string]string{}
-	_ = jsonl.Each(filepath.Join(p.Home, "session_index.jsonl"), func(line []byte, _ int) error {
+	_ = jsonl.Read(filepath.Join(p.Home, "session_index.jsonl"), jsonl.Window{}, func(l jsonl.Line) error {
 		var r struct {
 			ID         string `json:"id"`
 			ThreadName string `json:"thread_name"`
 		}
-		if json.Unmarshal(line, &r) == nil && r.ID != "" && r.ThreadName != "" {
+		if json.Unmarshal(l.Bytes, &r) == nil && r.ID != "" && r.ThreadName != "" {
 			m[r.ID] = r.ThreadName
 		}
 		return nil

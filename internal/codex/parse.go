@@ -51,22 +51,19 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 	if abandoned > 0 {
 		t.Notes = append(t.Notes, fmt.Sprintf("%d abandoned branch page(s) skipped (edited or rolled-back turns)", abandoned))
 	}
-	read := jsonl.Each
 	switch {
 	case o.Window.TailBytes > 0:
 		chain = chain[len(chain)-1:]
-		read = func(path string, fn func([]byte, int) error) error { return jsonl.Tail(path, o.Window.TailBytes, fn) }
 	case o.Window.HeadBytes > 0:
 		chain = chain[:1]
-		read = func(path string, fn func([]byte, int) error) error { return jsonl.Head(path, o.Window.HeadBytes, fn) }
 	}
 	var recs []record
 	rolledBack := 0
 	for i, pg := range chain {
 		limit, hasLimit := limits[pg.pageID]
-		err := read(pg.path, func(line []byte, n int) error {
+		err := jsonl.Read(pg.path, o.Window, func(l jsonl.Line) error {
 			t.Records++
-			r, ok := decode(line, n)
+			r, ok := decode(l.Bytes, l.N())
 			if !ok {
 				t.Unknown("undecodable-line")
 				return nil

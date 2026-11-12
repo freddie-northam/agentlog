@@ -20,11 +20,11 @@ func write(t *testing.T, content string) string {
 	return path
 }
 
-// seen collects what a reader hands its callback as "n:line" strings.
-func seen(read func(fn func([]byte, int) error) error) ([]string, error) {
+// seen collects what Read hands its callback as "n:line" strings.
+func seen(path string, w Window) ([]string, error) {
 	var got []string
-	err := read(func(line []byte, n int) error {
-		got = append(got, fmt.Sprintf("%d:%s", n, line))
+	err := Read(path, w, func(l Line) error {
+		got = append(got, fmt.Sprintf("%d:%s", l.N(), l.Bytes))
 		return nil
 	})
 	return got, err
@@ -34,7 +34,7 @@ func seen(read func(fn func([]byte, int) error) error) ([]string, error) {
 // count the file's physical lines: blank and whitespace-only lines are not
 // handed to the callback but still take a number, and a CRLF log (written on
 // Windows, or by a tool that forgot) reads the same as an LF one.
-func TestEachNumbersPhysicalLines(t *testing.T) {
+func TestReadNumbersPhysicalLines(t *testing.T) {
 	tests := []struct {
 		name, src string
 		want      []string
@@ -51,12 +51,12 @@ func TestEachNumbersPhysicalLines(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := write(t, tt.src)
-			got, err := seen(func(fn func([]byte, int) error) error { return Each(path, fn) })
+			got, err := seen(path, Window{})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if strings.Join(got, " ") != strings.Join(tt.want, " ") {
-				t.Errorf("Each() = %q, want %q", got, tt.want)
+				t.Errorf("Read() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -65,14 +65,14 @@ func TestEachNumbersPhysicalLines(t *testing.T) {
 // A single record can be tens of megabytes (a tool result with a file in
 // it), far past any buffer size. It must come through whole, and the line
 // after it must keep its number.
-func TestEachReadsLinesPastTheBuffer(t *testing.T) {
+func TestReadReadsLinesPastTheBuffer(t *testing.T) {
 	big := `{"out":"` + strings.Repeat("x", 3<<20) + `"}`
 	path := write(t, big+"\n{\"next\":1}\n")
 	var sizes []int
 	var nums []int
-	if err := Each(path, func(line []byte, n int) error {
-		sizes = append(sizes, len(line))
-		nums = append(nums, n)
+	if err := Read(path, Window{}, func(l Line) error {
+		sizes = append(sizes, len(l.Bytes))
+		nums = append(nums, l.N())
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -87,11 +87,11 @@ func TestEachReadsLinesPastTheBuffer(t *testing.T) {
 // that from a read that failed some other way.
 func TestReadersReportAVanishedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gone.jsonl")
-	nop := func([]byte, int) error { return nil }
+	nop := func(Line) error { return nil }
 	for name, err := range map[string]error{
-		"Each": Each(path, nop),
-		"Head": Head(path, 100, nop),
-		"Tail": Tail(path, 100, nop),
+		"whole": Read(path, Window{}, nop),
+		"head":  Read(path, Window{HeadBytes: 100}, nop),
+		"tail":  Read(path, Window{TailBytes: 100}, nop),
 	} {
 		if !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("%s() = %v, want a not-exist error", name, err)
@@ -104,19 +104,19 @@ func TestReadersReportAVanishedFile(t *testing.T) {
 func TestCallbackErrors(t *testing.T) {
 	path := write(t, "1\n2\n3\n")
 	calls := 0
-	stop := func(_ []byte, n int) error {
+	stop := func(l Line) error {
 		calls++
-		if n == 2 {
+		if l.N() == 2 {
 			return fmt.Errorf("done looking: %w", ErrStop)
 		}
 		return nil
 	}
-	if err := Each(path, stop); err != nil || calls != 2 {
-		t.Errorf("Each() with ErrStop = %v after %d calls, want nil after 2", err, calls)
+	if err := Read(path, Window{}, stop); err != nil || calls != 2 {
+		t.Errorf("Read() with ErrStop = %v after %d calls, want nil after 2", err, calls)
 	}
 	boom := errors.New("boom")
-	if err := Each(path, func([]byte, int) error { return boom }); !errors.Is(err, boom) {
-		t.Errorf("Each() = %v, want the callback's error", err)
+	if err := Read(path, Window{}, func(Line) error { return boom }); !errors.Is(err, boom) {
+		t.Errorf("Read() = %v, want the callback's error", err)
 	}
 }
 
@@ -124,21 +124,19 @@ func TestCallbackErrors(t *testing.T) {
 // comes from the read and must surface rather than read as an empty log.
 func TestReadingADirectoryIsAnError(t *testing.T) {
 	dir := t.TempDir()
-	nop := func([]byte, int) error { return nil }
-	if err := Each(dir, nop); err == nil {
-		t.Error("Each(dir) = nil, want an error")
+	nop := func(Line) error { return nil }
+	if err := Read(dir, Window{}, nop); err == nil {
+		t.Error("Read(dir) = nil, want an error")
 	}
-	if err := Tail(dir, 1, nop); err == nil {
-		t.Error("Tail(dir) = nil, want an error")
+	if err := Read(dir, Window{TailBytes: 1}, nop); err == nil {
+		t.Error("Read(dir) of a tail = nil, want an error")
 	}
 }
 
-// Head is the cheap look at a log's start used to discover what a session
-// is and to preview it. The limit is in bytes, so it can cut a line in two.
-// The cut half is not a record: handed over, every windowed read of a log
-// bigger than the window reported one record it could not decode. A last
-// line with no newline where the file really ends (being written) is still
-// handed over, as Each does.
+// A head window is the cheap look at a log's start that discovers a session and previews it.
+// The limit is in bytes, so it can cut a line in two.
+// The cut half is not a record: handed over, every windowed read of a large log reported one record it could not decode.
+// A last line with no newline where the file really ends (being written) is still handed over, as a whole read does.
 func TestHeadStopsAtTheByteLimit(t *testing.T) {
 	full := write(t, "{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n") // 8 bytes a line
 	writing := write(t, "{\"a\":1}\n{\"b\":")
@@ -153,7 +151,6 @@ func TestHeadStopsAtTheByteLimit(t *testing.T) {
 		{"window cuts the second line", full, 12, []string{`1:{"a":1}`}},
 		{"window one byte short of the end", full, 23, []string{`1:{"a":1}`, `2:{"b":2}`}},
 		{"window exactly the file", full, 24, []string{`1:{"a":1}`, `2:{"b":2}`, `3:{"c":3}`}},
-		{"zero window", full, 0, nil},
 		{"window past the end", full, 1 << 20, []string{`1:{"a":1}`, `2:{"b":2}`, `3:{"c":3}`}},
 		{"file ends mid-line inside the window", writing, 100, []string{`1:{"a":1}`, `2:{"b":`}},
 		{"file ends mid-line at the window", writing, 13, []string{`1:{"a":1}`, `2:{"b":`}},
@@ -161,21 +158,20 @@ func TestHeadStopsAtTheByteLimit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := seen(func(fn func([]byte, int) error) error { return Head(tt.path, tt.max, fn) })
+			got, err := seen(tt.path, Window{HeadBytes: tt.max})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if strings.Join(got, " ") != strings.Join(tt.want, " ") {
-				t.Errorf("Head(%d) = %q, want %q", tt.max, got, tt.want)
+				t.Errorf("head %d: Read() = %q, want %q", tt.max, got, tt.want)
 			}
 		})
 	}
 }
 
-// Tail is how a preview reads the end of a 170MB log without the rest. It
-// must hand over only whole lines: the window's first line is usually cut and
-// is dropped, but a window that opens exactly on a line boundary has no cut
-// line and must not lose the whole one it starts with.
+// A tail window is how a preview reads the end of a 170MB log without the rest.
+// It must hand over only whole lines, so the window's first line is usually cut and dropped.
+// A window that opens exactly on a line boundary has no cut line, and it must not lose the whole one it starts with.
 func TestTailHandsOverWholeLines(t *testing.T) {
 	src := "{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n" // 8 bytes a line
 	path := write(t, src)
@@ -191,41 +187,39 @@ func TestTailHandsOverWholeLines(t *testing.T) {
 		{"window larger than the file", 1 << 20, []string{`0:{"a":1}`, `0:{"b":2}`, `0:{"c":3}`}},
 		{"window exactly the file", int64(len(src)), []string{`0:{"a":1}`, `0:{"b":2}`, `0:{"c":3}`}},
 		{"window of the last newline only", 1, nil},
-		{"zero window", 0, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := seen(func(fn func([]byte, int) error) error { return Tail(path, tt.max, fn) })
+			got, err := seen(path, Window{TailBytes: tt.max})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if strings.Join(got, " ") != strings.Join(tt.want, " ") {
-				t.Errorf("Tail(%d) = %q, want %q", tt.max, got, tt.want)
+				t.Errorf("tail %d: Read() = %q, want %q", tt.max, got, tt.want)
 			}
 		})
 	}
 }
 
-// The window can land inside one record bigger than itself (a huge tool
-// result at the end of a session). There is no whole line to show, which is
-// not an error. A final line still being written is handed over like Each
-// does.
+// The window can land inside one record bigger than itself (a huge tool result at the end of a session).
+// There is no whole line to show, which is not an error.
+// A final line still being written is handed over, as a whole read does.
 func TestTailInsideOneGiantLine(t *testing.T) {
 	path := write(t, "{\"a\":1}\n{\"out\":\""+strings.Repeat("x", 1000)+"\"}\n")
-	got, err := seen(func(fn func([]byte, int) error) error { return Tail(path, 100, fn) })
+	got, err := seen(path, Window{TailBytes: 100})
 	if err != nil || len(got) != 0 {
-		t.Errorf("Tail() = %q, %v, want nothing and no error", got, err)
+		t.Errorf("tail: Read() = %q, %v, want nothing and no error", got, err)
 	}
 	// The same giant record, still being written: no newline anywhere in
 	// the window.
 	path = write(t, "{\"a\":1}\n{\"out\":\""+strings.Repeat("x", 1000))
-	got, err = seen(func(fn func([]byte, int) error) error { return Tail(path, 100, fn) })
+	got, err = seen(path, Window{TailBytes: 100})
 	if err != nil || len(got) != 0 {
-		t.Errorf("Tail() = %q, %v, want nothing and no error", got, err)
+		t.Errorf("tail: Read() = %q, %v, want nothing and no error", got, err)
 	}
 	path = write(t, "{\"a\":1}\n{\"b\":2}\n{\"c\":")
-	got, err = seen(func(fn func([]byte, int) error) error { return Tail(path, 13, fn) }) // 8+5 bytes: line b, then the cut one
+	got, err = seen(path, Window{TailBytes: 13}) // 8+5 bytes: line b, then the cut one
 	if err != nil || strings.Join(got, " ") != `0:{"b":2} 0:{"c":` {
-		t.Errorf("Tail() = %q, %v, want the last whole line and the one being written", got, err)
+		t.Errorf("tail: Read() = %q, %v, want the last whole line and the one being written", got, err)
 	}
 }

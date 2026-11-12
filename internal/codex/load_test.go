@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Ryheff24/agentlog/internal/jsonl"
 	"github.com/Ryheff24/agentlog/internal/transcript"
 )
 
@@ -92,11 +93,11 @@ func TestLoadPagedThread(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		window transcript.Window
+		window jsonl.Window
 		want   string
 	}{
-		{"head reads the first page", transcript.Window{HeadBytes: 1 << 20}, "opening prompt|second prompt"},
-		{"tail reads the last page", transcript.Window{TailBytes: 1 << 20}, "latest prompt"},
+		{"head reads the first page", jsonl.Window{HeadBytes: 1 << 20}, "opening prompt|second prompt"},
+		{"tail reads the last page", jsonl.Window{TailBytes: 1 << 20}, "latest prompt"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tr, err := (&Provider{}).Load(s, transcript.Load{Window: tc.window})

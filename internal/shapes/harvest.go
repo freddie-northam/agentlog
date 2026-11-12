@@ -37,7 +37,8 @@ func (h Harvest) Run() ([]Shape, error) {
 		version := ""
 		// A file that cannot be read is not a failure of the harvest: logs are
 		// written while they are read, and a half-written line is normal.
-		_ = jsonl.Each(f, func(line []byte, n int) error {
+		_ = jsonl.Read(f, jsonl.Window{}, func(l jsonl.Line) error {
+			line := l.Bytes
 			if h.Max > 0 && len(line) > h.Max {
 				return nil
 			}

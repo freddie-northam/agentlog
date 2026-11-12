@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Ryheff24/agentlog/internal/jsonl"
 	"github.com/Ryheff24/agentlog/internal/transcript"
 )
 
@@ -169,7 +170,7 @@ func TestAssistantRecordEdges(t *testing.T) {
 		rec := assistant(map[string]any{"type": "server_tool_use", "id": "s1", "name": "web_search"},
 			map[string]any{"type": "web_search_tool_result", "tool_use_id": "s1"},
 			map[string]any{"type": "text", "text": "Found it."})
-		for _, w := range []transcript.Window{{}, {TailBytes: 1 << 20}} {
+		for _, w := range []jsonl.Window{{}, {TailBytes: 1 << 20}} {
 			tr := loadLog(t, transcript.Load{Window: w}, user("go"), rec)
 			// The stand-in reads the record by shape, so what kind it comes
 			// out as is the generic reader's call; that there is one is ours.

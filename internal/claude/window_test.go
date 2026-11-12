@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Ryheff24/agentlog/internal/jsonl"
 	"github.com/Ryheff24/agentlog/internal/transcript"
 )
 
@@ -39,7 +40,7 @@ func TestTailWindowStartsMidConversation(t *testing.T) {
 		withUUID(user("second ask"), "u2", "a2"),
 		withUUID(assistant(map[string]any{"type": "text", "text": "done"}), "a3", "u2"),
 	})
-	tail := transcript.Load{Window: transcript.Window{TailBytes: tailFrom(t, path, 2)}}
+	tail := transcript.Load{Window: jsonl.Window{TailBytes: tailFrom(t, path, 2)}}
 	tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, Files: []string{path}}, tail)
 	if err != nil {
 		t.Fatal(err)
@@ -79,11 +80,11 @@ func TestTailWindowOpeningOnACompactionIsNotAContinuation(t *testing.T) {
 	})
 	for _, tc := range []struct {
 		name      string
-		window    transcript.Window
+		window    jsonl.Window
 		continues bool
 	}{
-		{"window opens on the compaction", transcript.Window{TailBytes: tailFrom(t, path, 2)}, false},
-		{"window larger than the log", transcript.Window{TailBytes: 1 << 20}, false},
+		{"window opens on the compaction", jsonl.Window{TailBytes: tailFrom(t, path, 2)}, false},
+		{"window larger than the log", jsonl.Window{TailBytes: 1 << 20}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, Files: []string{path}}, transcript.Load{Window: tc.window})
@@ -101,7 +102,7 @@ func TestTailWindowOpeningOnACompactionIsNotAContinuation(t *testing.T) {
 	path2 := filepath.Join(t.TempDir(), sessionID+".jsonl")
 	writeJSONL(t, path2, []map[string]any{boundary, withUUID(user("after compaction"), "u2", "c1")})
 	tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, Files: []string{path2}},
-		transcript.Load{Window: transcript.Window{TailBytes: 1 << 20}})
+		transcript.Load{Window: jsonl.Window{TailBytes: 1 << 20}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +129,7 @@ func TestHeadWindowEndsMidConversation(t *testing.T) {
 	head := int64(bytes.Index(data, []byte(`"Read"`)))
 	head += int64(bytes.IndexByte(data[head:], '\n')) + 1
 	tr, err := (&Provider{}).Load(&transcript.Session{ID: sessionID, Files: []string{path}},
-		transcript.Load{Window: transcript.Window{HeadBytes: head}})
+		transcript.Load{Window: jsonl.Window{HeadBytes: head}})
 	if err != nil {
 		t.Fatal(err)
 	}

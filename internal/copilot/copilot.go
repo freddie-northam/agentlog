@@ -180,14 +180,8 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 		t.Events = append(t.Events, e)
 		return len(t.Events) - 1
 	}
-	read := jsonl.Each
-	switch {
-	case o.Window.TailBytes > 0:
-		read = func(path string, fn func([]byte, int) error) error { return jsonl.Tail(path, o.Window.TailBytes, fn) }
-	case o.Window.HeadBytes > 0:
-		read = func(path string, fn func([]byte, int) error) error { return jsonl.Head(path, o.Window.HeadBytes, fn) }
-	}
-	err := read(s.File(), func(line []byte, n int) error {
+	err := jsonl.Read(s.File(), o.Window, func(l jsonl.Line) error {
+		line, n := l.Bytes, l.N()
 		t.Records++
 		var ev event
 		if err := json.Unmarshal(line, &ev); err != nil {

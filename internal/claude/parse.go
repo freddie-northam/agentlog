@@ -92,11 +92,9 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 			maps.Copy(b.children, childIndex(filepath.Join(filepath.Dir(f), s.ID, "subagents")))
 		}
 	}
-	read := jsonl.Each
 	files := s.Files
 	switch {
 	case o.Window.TailBytes > 0:
-		read = func(path string, fn func([]byte, int) error) error { return jsonl.Tail(path, o.Window.TailBytes, fn) }
 		files = files[len(files)-1:]
 		// A tail window that starts after the first byte opens partway
 		// through the conversation, whatever its first record looks like.
@@ -104,7 +102,6 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 			b.midway = true
 		}
 	case o.Window.HeadBytes > 0:
-		read = func(path string, fn func([]byte, int) error) error { return jsonl.Head(path, o.Window.HeadBytes, fn) }
 		files = files[:min(1, len(files))]
 	}
 	// A session with logs in two folders may have been copied rather than
@@ -128,7 +125,8 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 	for _, file := range files {
 		b.file = file
 		maps.Copy(prior, seen)
-		err := read(file, func(line []byte, n int) error {
+		err := jsonl.Read(file, o.Window, func(l jsonl.Line) error {
+			line, n := l.Bytes, l.N()
 			b.raw = line
 			var e entry
 			if json.Unmarshal(line, &e) != nil {

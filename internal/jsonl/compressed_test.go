@@ -56,19 +56,17 @@ func TestCompressedLogsReadLikePlain(t *testing.T) {
 				t.Fatal(err)
 			}
 			size := st.Size()
-			readers := map[string]func(path string, fn func([]byte, int) error) error{
-				"each": Each,
-			}
+			windows := map[string]Window{"whole": {}}
 			for _, w := range []int64{1, 50, 4 << 10, 64 << 10, 200 << 10, size - 1, size, size + 1} {
-				readers["head "+strconv.FormatInt(w, 10)] = func(p string, fn func([]byte, int) error) error { return Head(p, w, fn) }
-				readers["tail "+strconv.FormatInt(w, 10)] = func(p string, fn func([]byte, int) error) error { return Tail(p, w, fn) }
+				windows["head "+strconv.FormatInt(w, 10)] = Window{HeadBytes: w}
+				windows["tail "+strconv.FormatInt(w, 10)] = Window{TailBytes: w}
 			}
-			for what, read := range readers {
-				want, err := seen(func(fn func([]byte, int) error) error { return read(plain, fn) })
+			for what, w := range windows {
+				want, err := seen(plain, w)
 				if err != nil {
 					t.Fatal(err)
 				}
-				got, err := seen(func(fn func([]byte, int) error) error { return read(zst, fn) })
+				got, err := seen(zst, w)
 				if err != nil {
 					t.Fatalf("%s: %v", what, err)
 				}
@@ -76,8 +74,8 @@ func TestCompressedLogsReadLikePlain(t *testing.T) {
 					t.Errorf("%s: %d lines from the compressed log, %d from the plain one", what, len(got), len(want))
 				}
 			}
-			if lines, _ := seen(func(fn func([]byte, int) error) error { return Each(zst, fn) }); len(lines) != 4000 {
-				t.Errorf("Each() = %d lines, want 4000", len(lines))
+			if lines, _ := seen(zst, Window{}); len(lines) != 4000 {
+				t.Errorf("Read() = %d lines, want 4000", len(lines))
 			}
 		})
 	}
@@ -92,13 +90,13 @@ func TestCompressedTailInsideOneGiantLine(t *testing.T) {
 		if err := os.WriteFile(path, zstdtest.Frame([]byte(src)), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		got, err := seen(func(fn func([]byte, int) error) error { return Tail(path, 64<<10, fn) })
+		got, err := seen(path, Window{TailBytes: 64 << 10})
 		if err != nil || len(got) != 0 {
-			t.Errorf("end %q: Tail() = %d lines, %v; want none", end, len(got), err)
+			t.Errorf("end %q: tail: Read() = %d lines, %v; want none", end, len(got), err)
 		}
-		got, err = seen(func(fn func([]byte, int) error) error { return Each(path, fn) })
+		got, err = seen(path, Window{})
 		if err != nil || len(got) != 2 {
-			t.Errorf("end %q: Each() = %d lines, %v; want 2", end, len(got), err)
+			t.Errorf("end %q: Read() = %d lines, %v; want 2", end, len(got), err)
 		}
 	}
 }
@@ -124,11 +122,11 @@ func TestDamagedCompressedLogIsAnError(t *testing.T) {
 			if err := os.WriteFile(path, b, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if err := Each(path, func([]byte, int) error { return nil }); err == nil {
-				t.Error("Each() = nil error")
+			if err := Read(path, Window{}, func(Line) error { return nil }); err == nil {
+				t.Error("Read() = nil error")
 			}
-			if err := Tail(path, 4<<10, func([]byte, int) error { return nil }); err == nil {
-				t.Error("Tail() = nil error")
+			if err := Read(path, Window{TailBytes: 4 << 10}, func(Line) error { return nil }); err == nil {
+				t.Error("tail: Read() = nil error")
 			}
 		})
 	}
@@ -151,7 +149,7 @@ func TestLogNames(t *testing.T) {
 	if _, err := Open(missing); err == nil {
 		t.Error("Open() of a missing log = nil error")
 	}
-	if err := Tail(missing, 4<<10, func([]byte, int) error { return nil }); err == nil {
-		t.Error("Tail() of a missing log = nil error")
+	if err := Read(missing, Window{TailBytes: 4 << 10}, func(Line) error { return nil }); err == nil {
+		t.Error("tail: Read() of a missing log = nil error")
 	}
 }

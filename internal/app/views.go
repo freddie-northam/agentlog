@@ -115,13 +115,13 @@ func readImages(t *transcript.Transcript, events []transcript.Event) ([]imageFil
 	sort.Strings(ordered)
 	var images []imageFile
 	for _, path := range ordered {
-		if err := jsonl.Each(path, func(raw []byte, n int) error {
-			ref, ok := refs[source{path, n}]
+		if err := jsonl.Read(path, jsonl.Window{}, func(l jsonl.Line) error {
+			ref, ok := refs[source{path, l.N()}]
 			if !ok {
 				return nil
 			}
 			var record any
-			if err := json.Unmarshal(raw, &record); err != nil {
+			if err := json.Unmarshal(l.Bytes, &record); err != nil {
 				return err
 			}
 			return walkImages(record, func(value, media string) error {

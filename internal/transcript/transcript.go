@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Ryheff24/agentlog/internal/jsonl"
 	"github.com/Ryheff24/agentlog/internal/spec"
 )
 
@@ -470,20 +471,12 @@ func (q Query) MatchID(id string) bool {
 	return q.ID == "" || strings.HasPrefix(id, q.ID)
 }
 
-// Window limits how much of a log is parsed; the zero value parses it all.
-// Windows are for cheap previews: event indices are not meaningful.
-type Window struct {
-	HeadBytes int64 // parse only the first HeadBytes of the oldest file
-	TailBytes int64 // parse only the last TailBytes of the newest file
-}
-
-// Whole reports whether the window covers the entire log.
-func (w Window) Whole() bool { return w.HeadBytes <= 0 && w.TailBytes <= 0 }
-
 // Load controls how a reader turns a log into a transcript. The zero value
 // reads everything and shows only what the session actually did.
 type Load struct {
-	Window Window
+	// Window limits the parse to the head of the oldest file or the tail of the newest.
+	// Windows are for cheap previews: event indices are not meaningful.
+	Window jsonl.Window
 
 	// Branches keeps the records of turns the session walked away from — a
 	// rewind, an edited prompt, a restarted turn. They are hidden by default

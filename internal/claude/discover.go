@@ -226,7 +226,7 @@ func (p *Provider) stat(path, id string, q transcript.Query) *transcript.Session
 // head reads cwd, branch, start time and titles from the start of the log.
 func (p *Provider) head(s *transcript.Session) {
 	cwdFromLog := false
-	_ = jsonl.Head(s.File(), 256<<10, func(line []byte, _ int) error {
+	_ = jsonl.Read(s.File(), jsonl.Window{HeadBytes: 256 << 10}, func(l jsonl.Line) error {
 		var e struct {
 			Type        string    `json:"type"`
 			Timestamp   time.Time `json:"timestamp"`
@@ -236,7 +236,7 @@ func (p *Provider) head(s *transcript.Session) {
 			AITitle     string    `json:"aiTitle"`
 			CustomTitle string    `json:"customTitle"`
 		}
-		if json.Unmarshal(line, &e) != nil {
+		if json.Unmarshal(l.Bytes, &e) != nil {
 			return nil
 		}
 		if s.Started.IsZero() && !e.Timestamp.IsZero() {
@@ -266,11 +266,11 @@ func (p *Provider) head(s *transcript.Session) {
 	// than the window above, and the bookkeeping records before it carry no
 	// time. Read on until something does.
 	if s.Started.IsZero() {
-		_ = jsonl.Head(s.File(), 16<<20, func(line []byte, _ int) error {
+		_ = jsonl.Read(s.File(), jsonl.Window{HeadBytes: 16 << 20}, func(l jsonl.Line) error {
 			var e struct {
 				Timestamp time.Time `json:"timestamp"`
 			}
-			if json.Unmarshal(line, &e) == nil && !e.Timestamp.IsZero() {
+			if json.Unmarshal(l.Bytes, &e) == nil && !e.Timestamp.IsZero() {
 				s.Started = e.Timestamp
 				return jsonl.ErrStop
 			}
@@ -285,12 +285,12 @@ func (p *Provider) head(s *transcript.Session) {
 // a search for the project it was moved to should find it. The tail says
 // where it ended up; the head says only where it began.
 func moved(s *transcript.Session, folder string) {
-	_ = jsonl.Tail(s.File(), 1<<20, func(line []byte, _ int) error {
+	_ = jsonl.Read(s.File(), jsonl.Window{TailBytes: 1 << 20}, func(l jsonl.Line) error {
 		var e struct {
 			CWD       string `json:"cwd"`
 			Relocated string `json:"relocatedCwd"`
 		}
-		if json.Unmarshal(line, &e) != nil {
+		if json.Unmarshal(l.Bytes, &e) != nil {
 			return nil
 		}
 		for _, d := range []string{e.Relocated, e.CWD} {

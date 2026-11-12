@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Ryheff24/agentlog/internal/jsonl"
 	"github.com/Ryheff24/agentlog/internal/monitor"
 	"github.com/Ryheff24/agentlog/internal/transcript"
 	"github.com/Ryheff24/agentlog/internal/work"
@@ -222,7 +223,7 @@ func (c *Catalog) Enrich(ctx context.Context, ss []*transcript.Session) {
 	work.Do(ctx, len(todo), func(i int) {
 		s := todo[i]
 		p := c.provider(s.Provider)
-		head, headErr := p.Load(s, transcript.Load{Window: transcript.Window{HeadBytes: 512 << 10}})
+		head, headErr := p.Load(s, transcript.Load{Window: jsonl.Window{HeadBytes: 512 << 10}})
 		if headErr == nil {
 			for _, e := range head.Events {
 				if e.Kind == transcript.KindUser {
@@ -237,7 +238,7 @@ func (c *Catalog) Enrich(ctx context.Context, ss []*transcript.Session) {
 				s.Model = head.Session.Model
 			}
 		}
-		tail, err := p.Load(s, transcript.Load{Window: transcript.Window{TailBytes: 768 << 10}})
+		tail, err := p.Load(s, transcript.Load{Window: jsonl.Window{TailBytes: 768 << 10}})
 		if err != nil {
 			s.Unreadable = headErr != nil
 			return

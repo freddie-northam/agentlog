@@ -52,23 +52,61 @@ type decompressed struct {
 
 func (d decompressed) Close() error { return d.f.Close() }
 
-// Each calls fn for every non-empty line of the file with its 1-based line
-// number. The line slice is only valid during the call.
-func Each(path string, fn func(line []byte, n int) error) error {
+// Pos is where one line sits in a log.
+// Only this package builds one, so its offset is always the start of a line that was read.
+// Pos is comparable, so a caller can find a record by it.
+type Pos struct {
+	path string
+	n    int
+	off  int64
+}
+
+// Path is the log file, as given to Read. It is empty only in the zero Pos.
+func (p Pos) Path() string { return p.path }
+
+// N is the 1-based line number, or 0 when a tail window cannot know it.
+func (p Pos) N() int { return p.n }
+
+// Off is the offset of the line's first byte in the decompressed log.
+func (p Pos) Off() int64 { return p.off }
+
+// Line is one line of a log and its position.
+type Line struct {
+	Pos
+	Bytes []byte // trimmed, and valid only during the call
+}
+
+// Window selects a part of a log. The zero value selects all of it.
+// When both fields are set, TailBytes wins.
+type Window struct {
+	HeadBytes int64 // read only the first HeadBytes
+	TailBytes int64 // read only the last TailBytes
+}
+
+// Whole reports whether the window covers the entire log.
+func (w Window) Whole() bool { return w.HeadBytes <= 0 && w.TailBytes <= 0 }
+
+// Read calls fn for each non-empty line that the window selects.
+//
+// A head window leaves out a line it cut in two: it is not a record, and handing it over would have every windowed read of a large log report one it could not decode.
+// A last line with no newline where the file itself ends is still handed over, in every window.
+// A tail window hands over only whole lines, and their line numbers are 0.
+func Read(path string, w Window, fn func(Line) error) error {
+	switch {
+	case w.TailBytes > 0:
+		return tail(path, w.TailBytes, fn)
+	case w.HeadBytes > 0:
+		return head(path, w.HeadBytes, fn)
+	}
 	f, err := Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return each(f, 1, fn, nil)
+	return each(f, Pos{path, 1, 0}, fn, nil)
 }
 
-// Head is like Each but stops after maxBytes have been consumed. A line the
-// window cut in two is left out: it is not a record, and handing it over
-// would have every windowed read of a large log report one it could not
-// decode. A last line with no newline where the file itself ends is still
-// handed over, as Each does.
-func Head(path string, maxBytes int64, fn func(line []byte, n int) error) error {
+func head(path string, maxBytes int64, fn func(Line) error) error {
 	f, err := Open(path)
 	if err != nil {
 		return err
@@ -83,12 +121,10 @@ func Head(path string, maxBytes int64, fn func(line []byte, n int) error) error 
 		n, _ := f.Read(b[:])
 		return n > 0
 	}
-	return each(lr, 1, fn, cut)
+	return each(lr, Pos{path, 1, 0}, fn, cut)
 }
 
-// Tail calls fn for each complete line within the last maxBytes of the file.
-// Line numbers are unknown and passed as 0.
-func Tail(path string, maxBytes int64, fn func(line []byte, n int) error) error {
+func tail(path string, maxBytes int64, fn func(Line) error) error {
 	if strings.HasSuffix(path, Compressed) {
 		return tailStream(path, maxBytes, fn)
 	}
@@ -115,20 +151,21 @@ func Tail(path string, maxBytes int64, fn func(line []byte, n int) error) error 
 	}
 	r := bufio.NewReaderSize(f, 1<<16)
 	if skipPartial {
-		if _, err := r.ReadBytes('\n'); err != nil {
+		skipped, err := r.ReadBytes('\n')
+		if err != nil {
 			if err == io.EOF {
 				return nil // window is inside one giant line
 			}
 			return err
 		}
+		off += int64(len(skipped))
 	}
-	return each(r, 0, fn, nil)
+	return each(r, Pos{path, 0, off}, fn, nil)
 }
 
-// tailStream is Tail for a log that can only be read from its start, as a
-// compressed one can: it reads all of it and keeps the window Tail would have
-// seeked to, the last maxBytes and the byte before them.
-func tailStream(path string, maxBytes int64, fn func(line []byte, n int) error) error {
+// tailStream is tail for a log that can only be read from its start, as a compressed one can.
+// It reads all of it and keeps the window that tail would have seeked to: the last maxBytes and the byte before them.
+func tailStream(path string, maxBytes int64, fn func(Line) error) error {
 	f, err := Open(path)
 	if err != nil {
 		return err
@@ -156,24 +193,26 @@ func tailStream(path string, maxBytes int64, fn func(line []byte, n int) error) 
 	if len(keep) > window {
 		keep = keep[len(keep)-window:]
 	}
+	off := total - int64(len(keep))
 	r := bufio.NewReaderSize(bytes.NewReader(keep), 1<<16)
 	if skipPartial {
-		if _, err := r.ReadBytes('\n'); err != nil {
+		skipped, err := r.ReadBytes('\n')
+		if err != nil {
 			return nil // the window is inside one giant line
 		}
+		off += int64(len(skipped))
 	}
-	return each(r, 0, fn, nil)
+	return each(r, Pos{path, 0, off}, fn, nil)
 }
 
-// each hands fn every non-empty line of r. cut, when given, is asked about a
-// final line with no newline: true means the reader was cut short there and
-// the line is only part of one.
-func each(r io.Reader, start int, fn func(line []byte, n int) error, cut func() bool) error {
+// each hands fn every non-empty line of r, which starts at the line at.
+// A line number of 0 in at means the numbers are unknown and stay 0.
+// cut, when given, is asked about a final line with no newline: true means the reader was cut short there and the line is only part of one.
+func each(r io.Reader, at Pos, fn func(Line) error, cut func() bool) error {
 	br, ok := r.(*bufio.Reader)
 	if !ok {
 		br = bufio.NewReaderSize(r, 1<<16)
 	}
-	n := start
 	for {
 		line, err := br.ReadBytes('\n')
 		if err == io.EOF && len(line) > 0 && cut != nil && cut() {
@@ -184,16 +223,17 @@ func each(r io.Reader, start int, fn func(line []byte, n int) error, cut func() 
 			// A final line without '\n' may be a partial write; json decoding
 			// in the callback rejects it, which is fine.
 			if len(trimmed) > 0 {
-				if cbErr := fn(trimmed, n); cbErr != nil {
+				if cbErr := fn(Line{at, trimmed}); cbErr != nil {
 					if errors.Is(cbErr, ErrStop) {
 						return nil
 					}
 					return cbErr
 				}
 			}
-			if start > 0 {
-				n++
+			if at.n > 0 {
+				at.n++
 			}
+			at.off += int64(len(line))
 		}
 		if err == io.EOF {
 			return nil
