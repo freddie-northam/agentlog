@@ -166,8 +166,8 @@ func TestAssistantRecordEdges(t *testing.T) {
 	// Drift: block types that arrive after this build. Each record stands in
 	// once, however many unfamiliar blocks it holds.
 	t.Run("unfamiliar blocks give one stand-in per record", func(t *testing.T) {
-		rec := assistant(map[string]any{"type": "server_tool_use", "id": "s1", "name": "web_search"},
-			map[string]any{"type": "web_search_tool_result", "tool_use_id": "s1"},
+		rec := assistant(map[string]any{"type": "novel_tool_use", "id": "s1", "name": "web_search"},
+			map[string]any{"type": "novel_tool_result", "tool_use_id": "s1"},
 			map[string]any{"type": "text", "text": "Found it."})
 		for _, w := range []transcript.Window{{}, {TailBytes: 1 << 20}} {
 			tr := loadLog(t, transcript.Load{Window: w}, user("go"), rec)
@@ -176,7 +176,7 @@ func TestAssistantRecordEdges(t *testing.T) {
 			if n := len(tr.Events); n != 3 || tr.Events[2].Kind != transcript.KindAssistant {
 				t.Errorf("window %+v: kinds = %q, want user, one stand-in, assistant", w, kinds(tr))
 			}
-			if tr.Unknowns["assistant:server_tool_use"] != 1 || tr.Unknowns["assistant:web_search_tool_result"] != 1 {
+			if tr.Unknowns["assistant:novel_tool_use"] != 1 || tr.Unknowns["assistant:novel_tool_result"] != 1 {
 				t.Errorf("window %+v: Unknowns = %v, want both block types counted", w, tr.Unknowns)
 			}
 		}

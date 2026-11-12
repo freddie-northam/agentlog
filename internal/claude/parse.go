@@ -21,6 +21,7 @@ import (
 )
 
 type entry struct {
+	AdvisorModel      string          `json:"advisorModel"`
 	Type              string          `json:"type"`
 	Subtype           string          `json:"subtype"`
 	CWD               string          `json:"cwd"`
@@ -824,14 +825,83 @@ func (b *builder) assistant(e entry, line int) {
 			if t := strings.TrimSpace(bl.Thinking); t != "" {
 				b.add(transcript.Event{Time: e.Timestamp, Kind: transcript.KindReasoning, Text: t, Line: line})
 			}
-		case "tool_use":
+		case "tool_use", "server_tool_use":
 			ev := b.toolUse(bl)
+			if bl.Type == "server_tool_use" && bl.Name == "advisor" {
+				ev.Input = advisorInput(e.Message.Usage, e.AdvisorModel)
+			}
 			ev.Time, ev.Line, ev.CallID = e.Timestamp, line, bl.ID
 			b.calls[bl.ID] = b.add(ev)
+		case "advisor_tool_result":
+			b.advisorResult(e, bl, line)
 		default:
 			b.unknown("assistant:"+bl.Type, e.Timestamp, line)
 		}
 	}
+}
+
+// advisorResult skips resultText, because the answer is encrypted.
+// It reads only the content type and a short error code.
+func (b *builder) advisorResult(e entry, bl block, line int) {
+	var c struct {
+		Type      string `json:"type"`
+		ErrorCode string `json:"error_code"`
+	}
+	_ = json.Unmarshal(bl.Content, &c)
+	out, failed := "answer encrypted in the log: only the call, the model and the tokens are recorded", false
+	switch c.Type {
+	case "advisor_redacted_result":
+	case "advisor_tool_result_error":
+		out, failed = "advisor call failed", true
+		if safeLabel(c.ErrorCode) {
+			out += ": " + c.ErrorCode
+		}
+	default:
+		out = "answer of a type that this build cannot read"
+		if safeLabel(c.Type) {
+			out = "answer of type " + c.Type + ", which this build cannot read"
+		}
+	}
+	i, ok := b.calls[bl.ToolUseID]
+	if !ok {
+		ev := b.t.Orphan("tool_result", out, e.Timestamp, line)
+		ev.Output, ev.Failed = out, failed
+		b.add(ev)
+		return
+	}
+	b.answered[i] = true
+	ev := &b.t.Events[i]
+	ev.ResultSource, ev.ResultLine = b.file, line
+	ev.Output, ev.Failed = out, failed
+}
+
+// safeLabel accepts a short machine code, so a changed field cannot carry text.
+func safeLabel(s string) bool { return labelRe.MatchString(s) }
+
+func advisorInput(usage json.RawMessage, fallback string) string {
+	var u struct {
+		Iterations []struct {
+			Type         string `json:"type"`
+			Model        string `json:"model"`
+			InputTokens  int64  `json:"input_tokens"`
+			OutputTokens int64  `json:"output_tokens"`
+		} `json:"iterations"`
+	}
+	if json.Unmarshal(usage, &u) != nil {
+		return fallback
+	}
+	for _, it := range u.Iterations {
+		if it.Type != "advisor_message" {
+			continue
+		}
+		model := firstNonEmpty(it.Model, fallback)
+		tokens := fmt.Sprintf("%d tokens in, %d out", it.InputTokens, it.OutputTokens)
+		if model == "" {
+			return tokens
+		}
+		return model + ", " + tokens
+	}
+	return fallback
 }
 
 func (b *builder) toolUse(bl block) transcript.Event {
@@ -931,6 +1001,8 @@ func (b *builder) toolUse(bl block) transcript.Event {
 }
 
 var exitCodeRe = regexp.MustCompile(`^Exit code (-?\d+)`)
+
+var labelRe = regexp.MustCompile(`^\w{1,40}$`)
 
 func (b *builder) user(e entry, line int) {
 	if e.IsMeta {
