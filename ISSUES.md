@@ -91,9 +91,9 @@ commit that fixes it; that commit is the record.
   path only matches a log that discovery found, so
   `agentlog …/journal.jsonl --tail 5` widens to all time and reports "no
   session matches file=…". Agents read these journals by hand in 8 episodes
-  across 38 days, to follow a running workflow. Listing a journal under its
-  session has to be checked against a real workflow folder, and the machine
-  the reading was written on has none.
+  across 38 days, to follow a running workflow. The agent logs in the same folders are
+  found: workflow subagents show under their session since the fix that reads
+  `subagents/workflows/wf_*`. Listing a journal under its session is still open.
 
 - **A wide subagent search is not bounded.** `agentlog <id> --subagents
   --grep '<a name>' --brief` returned 54.6KB: 74 hits, most from the parent

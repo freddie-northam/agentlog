@@ -163,7 +163,8 @@ do not erase or double-count usage. Copilot input includes cached tokens;
 the view subtracts those to report fresh input. A log without usage still
 says "no tokens recorded".
 
-`--subagents` adds the subagents' own work: their sessions for Claude Code and
+`--subagents` adds the subagents' own work: their sessions for Claude Code
+(including those the Workflow tool writes under `subagents/workflows/wf_*`) and
 Codex, and for Copilot CLI the steps it logs inline in the parent's file, each
 marked with the subagent that ran it. Without it their step count is reported
 in a note. `--branches` adds the turns a session rewound, edited or restarted;

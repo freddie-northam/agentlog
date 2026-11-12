@@ -218,3 +218,42 @@ func TestMergeKeepsWhatEachPartKnows(t *testing.T) {
 		t.Error("merge changed its inputs")
 	}
 }
+
+// The Workflow tool writes its subagents one folder deeper than the Task tool does.
+func TestDiscoverFindsWorkflowSubagents(t *testing.T) {
+	home := t.TempDir()
+	proj := filepath.Join(home, "projects", "-work-app")
+	writeJSONL(t, filepath.Join(proj, sessionID+".jsonl"), []map[string]any{user("go")})
+	sub := filepath.Join(proj, sessionID, "subagents")
+	writeJSONL(t, filepath.Join(sub, "agent-a1.jsonl"), []map[string]any{user("sub")})
+	wf := filepath.Join(sub, "workflows", "wf_r1")
+	writeJSONL(t, filepath.Join(wf, "agent-a2.jsonl"), []map[string]any{user("step")})
+	meta := `{"agentType":"workflow-subagent","description":"synthesize","workflowPhase":"Synthesize"}`
+	if err := os.WriteFile(filepath.Join(wf, "agent-a2.meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONL(t, filepath.Join(wf, "journal.jsonl"), []map[string]any{{"type": "launched"}})
+	// A file where a workflow folder should be is skipped.
+	if err := os.WriteFile(filepath.Join(sub, "workflows", "notes.txt"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ss, err := (&Provider{Home: home}).Discover(transcript.Query{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]*transcript.Session{}
+	for _, s := range ss {
+		byID[s.ID] = s
+		if s.ID == "journal" || strings.HasSuffix(strings.Join(s.Files, ","), "journal.jsonl") {
+			t.Errorf("journal listed as a session: %+v", s)
+		}
+	}
+	a2 := byID["a2"]
+	if a2 == nil || a2.ParentID != sessionID || a2.AgentRole != "workflow-subagent" || a2.Title != "synthesize" {
+		t.Errorf("workflow subagent = %+v", a2)
+	}
+	if byID["a1"] == nil {
+		t.Error("ordinary subagent a1 is gone")
+	}
+}

@@ -174,7 +174,19 @@ func merge(parts []*transcript.Session) *transcript.Session {
 
 func (p *Provider) subagents(sessionDir, parentID string, q transcript.Query) []*transcript.Session {
 	subDir := filepath.Join(sessionDir, "subagents")
-	entries, err := os.ReadDir(subDir)
+	out := p.agentLogs(subDir, parentID, q)
+	// The Workflow tool writes its subagents one folder deeper, in one folder for each run.
+	runs, _ := os.ReadDir(filepath.Join(subDir, "workflows"))
+	for _, run := range runs {
+		if run.IsDir() && strings.HasPrefix(run.Name(), "wf_") {
+			out = append(out, p.agentLogs(filepath.Join(subDir, "workflows", run.Name()), parentID, q)...)
+		}
+	}
+	return out
+}
+
+func (p *Provider) agentLogs(dir, parentID string, q transcript.Query) []*transcript.Session {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
@@ -185,7 +197,7 @@ func (p *Provider) subagents(sessionDir, parentID string, q transcript.Query) []
 			continue
 		}
 		id := strings.TrimSuffix(strings.TrimPrefix(name, "agent-"), ".jsonl")
-		path := filepath.Join(subDir, name)
+		path := filepath.Join(dir, name)
 		s := p.stat(path, id, q)
 		if s == nil {
 			continue
