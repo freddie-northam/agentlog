@@ -21,7 +21,6 @@ import (
 // record is one rollout line, lazily decoded.
 type record struct {
 	pos     jsonl.Pos // where the record sits
-	line    int
 	ts      time.Time
 	ordinal int64 // -1 when absent (older CLI versions)
 	typ     string
@@ -63,7 +62,7 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 		limit, hasLimit := limits[pg.pageID]
 		err := jsonl.Read(pg.path, o.Window, func(l jsonl.Line) error {
 			t.Records++
-			r, ok := decode(l.Bytes, l.N())
+			r, ok := decode(l.Bytes)
 			if !ok {
 				t.Unknown("undecodable-line")
 				return nil
@@ -124,7 +123,7 @@ func branchChain(pages []*page) (chain []*page, limits map[string]int64, abandon
 // whole line to encoding/json to reach four small fields scans those megabytes
 // once per nesting level, so the spans are found first and the decoder is
 // given only what a branch actually reads.
-func decode(line []byte, n int) (record, bool) {
+func decode(line []byte) (record, bool) {
 	// A line cut off mid-write (the process was killed, or the file is still
 	// being written) is not a record of whatever type it began as. Checking
 	// how it ends is enough to tell, without scanning it.
@@ -136,7 +135,7 @@ func decode(line []byte, n int) (record, bool) {
 	if typ == "" {
 		return record{}, false
 	}
-	r := record{line: n, ordinal: -1, typ: typ, payload: env[3], raw: line}
+	r := record{ordinal: -1, typ: typ, payload: env[3], raw: line}
 	if len(env[0]) > 0 {
 		_ = r.ts.UnmarshalJSON(env[0])
 	}
@@ -278,7 +277,7 @@ func (b *builder) build(recs []record) {
 // one stand-in at most.
 func (b *builder) unknown(recordType string, r record) {
 	b.t.Unknown(recordType)
-	b.add(generic.Event(recordType, r.raw, r.ts, r.line))
+	b.add(generic.Event(recordType, r.raw, r.ts))
 }
 
 func (b *builder) add(e transcript.Event) int {
@@ -554,7 +553,7 @@ func (b *builder) compacted(r record) {
 	if strings.TrimSpace(c.Message) != "" {
 		text += "\n" + c.Message
 	}
-	b.add(transcript.Event{Time: r.ts, Kind: transcript.KindNotice, Tag: transcript.TagCompaction, Text: text, Line: r.line})
+	b.add(transcript.Event{Time: r.ts, Kind: transcript.KindNotice, Tag: transcript.TagCompaction, Text: text})
 }
 
 func (b *builder) eventMsg(r record) {
@@ -572,7 +571,7 @@ func (b *builder) eventMsg(r record) {
 			text = strings.TrimSpace(text + fmt.Sprintf(" [%d image(s)]", len(m.Images)))
 		}
 		if text != "" {
-			i := b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindUser, Text: text, Line: r.line}, fromLegacy, textKey("user", text), "")
+			i := b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindUser, Text: text}, fromLegacy, textKey("user", text), "")
 			if other, ok := b.userRecords[textKey("user", text)]; ok {
 				b.t.Events[i].Answer(other.pos)
 				delete(b.userRecords, textKey("user", text))
@@ -599,7 +598,7 @@ func (b *builder) eventMsg(r record) {
 		// The end record is the command and its result at once.
 		script := shellCommand(m.Command)
 		i := b.addCall(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "shell", Input: script,
-			Output: m.AggregatedOutput, ExitCode: m.ExitCode, Failed: m.ExitCode != nil && *m.ExitCode != 0, Line: r.line}, m.CallID, shellKey(script), "")
+			Output: m.AggregatedOutput, ExitCode: m.ExitCode, Failed: m.ExitCode != nil && *m.ExitCode != 0}, m.CallID, shellKey(script), "")
 		b.answered[i] = true
 	case "patch_apply_end":
 		var m struct {
@@ -619,7 +618,7 @@ func (b *builder) eventMsg(r record) {
 			Reason string `json:"reason"`
 		}
 		_ = json.Unmarshal(r.payload, &m)
-		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindNotice, Tag: transcript.TagInterrupted, Text: "turn aborted: " + m.Reason, Line: r.line})
+		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindNotice, Tag: transcript.TagInterrupted, Text: "turn aborted: " + m.Reason})
 	case "error":
 		var m turnError
 		_ = json.Unmarshal(r.payload, &m)
@@ -651,7 +650,7 @@ func (b *builder) eventMsg(r record) {
 		}
 		if b.t.Goal != b.lastGoal {
 			b.lastGoal = b.t.Goal
-			b.add(transcript.Event{Time: r.ts, Kind: transcript.KindPlan, Tag: "goal", Text: "goal: " + b.t.Goal, Line: r.line})
+			b.add(transcript.Event{Time: r.ts, Kind: transcript.KindPlan, Tag: "goal", Text: "goal: " + b.t.Goal})
 		}
 	case "thread_name_updated":
 		var m struct {
@@ -666,9 +665,9 @@ func (b *builder) eventMsg(r record) {
 			NumTurns int `json:"num_turns"`
 		}
 		_ = json.Unmarshal(r.payload, &m)
-		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindNotice, Tag: transcript.TagRollback, Text: fmt.Sprintf("user rolled back %d turn(s)", m.NumTurns), Line: r.line})
+		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindNotice, Tag: transcript.TagRollback, Text: fmt.Sprintf("user rolled back %d turn(s)", m.NumTurns)})
 	case "entered_review_mode", "exited_review_mode":
-		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindNotice, Text: strings.ReplaceAll(r.sub, "_", " "), Line: r.line})
+		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindNotice, Text: strings.ReplaceAll(r.sub, "_", " ")})
 	case "collab_agent_spawn_end":
 		var m struct {
 			CallID      string  `json:"call_id"`
@@ -683,7 +682,7 @@ func (b *builder) eventMsg(r record) {
 			if b.items["CollabAgentToolCall"] {
 				return // spawns are logged as spawn_agent calls in these versions
 			}
-			idx = b.addCall(transcript.Event{Time: r.ts, Kind: transcript.KindAgent, Tool: "spawn_agent", Line: r.line}, m.CallID, "", "")
+			idx = b.addCall(transcript.Event{Time: r.ts, Kind: transcript.KindAgent, Tool: "spawn_agent"}, m.CallID, "", "")
 		}
 		b.answered[idx] = true
 		e := &b.t.Events[idx]
@@ -713,7 +712,7 @@ type turnError struct {
 }
 
 func (m turnError) event(r record) transcript.Event {
-	e := transcript.Event{Time: r.ts, Kind: transcript.KindError, Text: m.Message, Line: r.line}
+	e := transcript.Event{Time: r.ts, Kind: transcript.KindError, Text: m.Message}
 	if transcript.IsUsageLimit(m.Message) || transcript.IsUsageLimit(string(m.ErrorInfo)) {
 		e.Tag = transcript.TagUsageLimit
 	}
@@ -729,7 +728,7 @@ func (b *builder) reasoning(r record, text string) {
 		b.lastReasoning = text
 	}
 	if delta != "" {
-		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindReasoning, Text: delta, Line: r.line})
+		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindReasoning, Text: delta})
 	}
 }
 
@@ -764,7 +763,7 @@ func (b *builder) responseItem(r record) {
 		switch m.Role {
 		case "assistant":
 			if strings.TrimSpace(text) != "" {
-				b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindAssistant, Text: text, Line: r.line}, fromLegacy, textKey("say", text), "")
+				b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindAssistant, Text: text}, fromLegacy, textKey("say", text), "")
 			}
 		case "user":
 			if b.hasUserEvts {
@@ -781,7 +780,7 @@ func (b *builder) responseItem(r record) {
 				return
 			}
 			if text = clip.StripInjected(text); text != "" {
-				b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindUser, Text: text, Line: r.line}, fromLegacy, textKey("user", text), "")
+				b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindUser, Text: text}, fromLegacy, textKey("user", text), "")
 			}
 		}
 	case "reasoning":
@@ -827,7 +826,7 @@ func (b *builder) responseItem(r record) {
 			// Codex writes the call and its output as two records, and the two
 			// streams do not always agree about ids. An output whose call this
 			// build cannot find is shown on its own rather than dropped.
-			orphan := b.t.Orphan(r.sub, "", r.ts, r.line)
+			orphan := b.t.Orphan(r.sub, "", r.ts)
 			attachOutput(&orphan, m.Output)
 			orphan.Text, orphan.Output = strings.TrimSpace(orphan.Output), ""
 			b.add(orphan)
@@ -847,7 +846,7 @@ func (b *builder) responseItem(r record) {
 		_ = json.Unmarshal(r.payload, &m)
 		switch m.Name {
 		case "apply_patch":
-			e := transcript.Event{Time: r.ts, Kind: transcript.KindEdit, Tool: m.Name, Changes: patch.ParseEnvelope(m.Input), Line: r.line}
+			e := transcript.Event{Time: r.ts, Kind: transcript.KindEdit, Tool: m.Name, Changes: patch.ParseEnvelope(m.Input)}
 			e.Input = patch.Summary(e.Changes)
 			key, loose := patchKeys(e.Changes)
 			b.addCall(e, m.CallID, key, loose)
@@ -855,7 +854,7 @@ func (b *builder) responseItem(r record) {
 			b.codeModeCall(r, m.Input, m.CallID)
 		default:
 			key, loose := callKeys(m.Name, m.Input)
-			b.addCall(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: m.Name, Input: m.Input, Line: r.line}, m.CallID, key, loose)
+			b.addCall(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: m.Name, Input: m.Input}, m.CallID, key, loose)
 		}
 	case "web_search_call":
 		var m struct {
@@ -868,7 +867,7 @@ func (b *builder) responseItem(r record) {
 		}
 		_ = json.Unmarshal(r.payload, &m)
 		in := firstNonEmpty(m.Action.Query, strings.Join(m.Action.Queries, " | "), m.Action.URL)
-		b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "web_search", Input: in, Line: r.line}, fromLegacy, "web\x00"+in, "")
+		b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "web_search", Input: in}, fromLegacy, "web\x00"+in, "")
 	case "agent_message":
 		b.interAgent(r)
 	case "tool_search_call", "tool_search_output", "compaction":
@@ -906,7 +905,7 @@ var (
 // log each inner call as an item make multi-call scripts redundant.
 func (b *builder) codeModeCall(r record, code, callID string) {
 	calls := codeToolRe.FindAllStringSubmatch(code, -1)
-	e := transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "exec", Input: code, Line: r.line}
+	e := transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "exec", Input: code}
 	switch {
 	case len(calls) == 1 && shellTools[calls[0][1]]:
 		if m := codeCmdRe.FindStringSubmatch(code); m != nil {
@@ -957,7 +956,7 @@ var (
 )
 
 func (b *builder) functionCall(r record, name, args string) transcript.Event {
-	e := transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: name, Line: r.line}
+	e := transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: name}
 	var a map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(args), &a)
 	str := func(k string) string {
@@ -1165,7 +1164,7 @@ func (b *builder) interAgent(r record) {
 		text = "[encrypted]"
 	}
 	b.add(transcript.Event{Time: r.ts, Kind: transcript.KindAgent, Tag: strings.ToLower(msgType),
-		Agent: m.Author + " → " + m.Recipient, Text: text, Line: r.line})
+		Agent: m.Author + " → " + m.Recipient, Text: text})
 }
 
 // subAgent records one edge between this thread and a subagent. It is the only
@@ -1189,12 +1188,12 @@ func (b *builder) subAgent(r record, raw json.RawMessage) {
 			return
 		}
 		b.agents[it.Thread] = b.add(transcript.Event{Time: r.ts, Kind: transcript.KindAgent, Tool: "subagent",
-			Tag: it.Kind, Agent: it.Path, AgentID: it.Thread, Line: r.line})
+			Tag: it.Kind, Agent: it.Path, AgentID: it.Thread})
 	case "completed", "interrupted":
 		i, ok := b.agents[it.Thread]
 		if !ok {
 			i = b.add(transcript.Event{Time: r.ts, Kind: transcript.KindAgent, Tool: "subagent",
-				Agent: it.Path, AgentID: it.Thread, Line: r.line})
+				Agent: it.Path, AgentID: it.Thread})
 		}
 		e := &b.t.Events[i]
 		e.Tag, e.Failed = it.Kind, it.Kind == "interrupted"
@@ -1242,7 +1241,7 @@ func (b *builder) item(r record) {
 			text = strings.TrimSpace(text + fmt.Sprintf(" [%d image(s)]", images))
 		}
 		if text != "" {
-			b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindUser, Text: text, Line: r.line}, fromItem, textKey("user", text), "")
+			b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindUser, Text: text}, fromItem, textKey("user", text), "")
 		}
 	case "AgentMessage":
 		var it struct {
@@ -1263,7 +1262,7 @@ func (b *builder) item(r record) {
 			if it.Phase == "final_answer" {
 				tag = "final"
 			}
-			b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindAssistant, Tag: tag, Text: text, Line: r.line}, fromItem, textKey("say", text), "")
+			b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindAssistant, Tag: tag, Text: text}, fromItem, textKey("say", text), "")
 		}
 	case "Reasoning":
 		var it struct {
@@ -1289,7 +1288,7 @@ func (b *builder) item(r record) {
 		_ = json.Unmarshal(env.Item, &it)
 		script := shellCommand(it.Command)
 		e := transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "shell", Input: script,
-			Output: firstNonEmpty(it.AggregatedOutput, strings.TrimSpace(it.Stdout+"\n"+it.Stderr)), ExitCode: it.ExitCode, Line: r.line}
+			Output: firstNonEmpty(it.AggregatedOutput, strings.TrimSpace(it.Stdout+"\n"+it.Stderr)), ExitCode: it.ExitCode}
 		e.Failed = (it.ExitCode != nil && *it.ExitCode != 0) || (it.Status != "" && it.Status != "completed")
 		if it.Status != "" && it.Status != "completed" && it.ExitCode == nil {
 			e.Output = strings.TrimSpace(e.Output + "\n[" + it.Status + "]")
@@ -1309,7 +1308,7 @@ func (b *builder) item(r record) {
 			} `json:"changes"`
 		}
 		_ = json.Unmarshal(env.Item, &it)
-		e := transcript.Event{Time: r.ts, Kind: transcript.KindEdit, Tool: "apply_patch", Line: r.line,
+		e := transcript.Event{Time: r.ts, Kind: transcript.KindEdit, Tool: "apply_patch",
 			Failed: it.Status != "" && it.Status != "completed", Output: strings.TrimSpace(it.Stdout + "\n" + it.Stderr)}
 		paths := make([]string, 0, len(it.Changes))
 		for path := range it.Changes {
@@ -1345,7 +1344,7 @@ func (b *builder) item(r record) {
 			Error     json.RawMessage `json:"error"`
 		}
 		_ = json.Unmarshal(env.Item, &it)
-		e := transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: it.Server + "." + it.Tool, Line: r.line,
+		e := transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: it.Server + "." + it.Tool,
 			Input: clip.JSON(it.Arguments, 400), Output: mcpResultText(it.Result)}
 		if len(it.Error) > 0 && string(it.Error) != "null" {
 			e.Failed = true
@@ -1374,7 +1373,7 @@ func (b *builder) item(r record) {
 			}
 		}
 		e := transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: it.Tool, Input: clip.JSON(it.Arguments, 400),
-			Output: strings.Join(out, "\n"), Failed: it.Status == "failed", Line: r.line, CallID: callID}
+			Output: strings.Join(out, "\n"), Failed: it.Status == "failed", CallID: callID}
 		key, loose := callKeys(it.Tool, e.Input)
 		b.addPaired(e, fromItem, key, loose)
 	case "WebSearch":
@@ -1388,7 +1387,7 @@ func (b *builder) item(r record) {
 		}
 		_ = json.Unmarshal(env.Item, &it)
 		in := firstNonEmpty(it.Action.Query, strings.Join(it.Action.Queries, " | "), it.Action.URL, it.Query)
-		b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "web_search", Input: in, Line: r.line}, fromItem, "web\x00"+in, "")
+		b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "web_search", Input: in}, fromItem, "web\x00"+in, "")
 	case "Extension":
 		var it struct {
 			Kind   string `json:"kind"`
@@ -1407,7 +1406,7 @@ func (b *builder) item(r record) {
 		for _, res := range it.Results {
 			lines = append(lines, res.Title+" "+res.URL)
 		}
-		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: firstNonEmpty(it.Kind, "extension"), Line: r.line,
+		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: firstNonEmpty(it.Kind, "extension"),
 			Input: firstNonEmpty(strings.Join(it.Action.Queries, " | "), it.Query, it.Action.URL), Output: strings.Join(lines, "\n")})
 	case "ImageView":
 		var it struct {
@@ -1415,7 +1414,7 @@ func (b *builder) item(r record) {
 		}
 		_ = json.Unmarshal(env.Item, &it)
 		path := strings.TrimPrefix(it.Path, "file://")
-		b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "view_image", Input: path, Line: r.line}, fromItem, "image\x00"+path, "")
+		b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindTool, Tool: "view_image", Input: path}, fromItem, "image\x00"+path, "")
 	case "SubAgentActivity":
 		b.subAgent(r, env.Item)
 	case "ContextCompaction", "CollabAgentToolCall", "EnteredReviewMode", "ExitedReviewMode":
@@ -1426,12 +1425,12 @@ func (b *builder) item(r record) {
 			Text string `json:"text"`
 		}
 		_ = json.Unmarshal(env.Item, &it)
-		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindPlan, Text: it.Text, Line: r.line})
+		b.add(transcript.Event{Time: r.ts, Kind: transcript.KindPlan, Text: it.Text})
 	default:
 		// An item type this build has never seen: read it by shape rather
 		// than dropping to a blob of JSON, and count it so --doctor says so.
 		b.t.Unknown("item:" + head.Type)
-		b.add(generic.Event("item:"+head.Type, r.raw, r.ts, r.line))
+		b.add(generic.Event("item:"+head.Type, r.raw, r.ts))
 	}
 }
 

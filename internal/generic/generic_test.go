@@ -10,7 +10,7 @@ import (
 
 var at = time.Date(2026, 9, 19, 10, 0, 0, 0, time.UTC)
 
-func read(src string) transcript.Event { return Event("some_record", []byte(src), at, 7) }
+func read(src string) transcript.Event { return Event("some_record", []byte(src), at) }
 
 // The case this package exists for: a provider renames a tool record, and the
 // reader that had a case for the old name has none for the new one. What comes
@@ -99,7 +99,7 @@ func TestEventSurvivesFieldsComingAndGoing(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := Event("x", []byte(tt.src), at, 1)
+			e := Event("x", []byte(tt.src), at)
 			if !strings.Contains(e.Input+e.Output+e.Text, "ls") {
 				t.Errorf("event lost the command: %+v", e)
 			}
@@ -123,7 +123,7 @@ func TestEventNeverPanics(t *testing.T) {
 					t.Errorf("Event(%.40q) panicked: %v", src, r)
 				}
 			}()
-			Event("x", []byte(src), at, 1)
+			Event("x", []byte(src), at)
 		}()
 	}
 }
@@ -131,7 +131,7 @@ func TestEventNeverPanics(t *testing.T) {
 // A record with no time of its own borrows the one the reader had; a record
 // carrying one gets to keep it.
 func TestEventTakesATimestampWhenItHasOne(t *testing.T) {
-	e := Event("x", []byte(`{"created_at":"2026-09-19T12:30:00Z","note":"hi"}`), time.Time{}, 1)
+	e := Event("x", []byte(`{"created_at":"2026-09-19T12:30:00Z","note":"hi"}`), time.Time{})
 	if got := e.Time.UTC().Format(time.RFC3339); got != "2026-09-19T12:30:00Z" {
 		t.Errorf("time = %s, want the record's own", got)
 	}

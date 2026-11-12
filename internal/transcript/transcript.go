@@ -186,7 +186,7 @@ type Event struct {
 	// At is where the event's record sits, and Result is where its result's record sits.
 	// An empty Result.Path() means the event has no result record.
 	// Source, Line, ResultSource and ResultLine are their projection in --json.
-	// Place and Answer write each position with its projection, so the two agree.
+	// Only Place and Answer write the projection, and each writes it with its position, so the two agree.
 	At     jsonl.Pos `json:"-"`
 	Result jsonl.Pos `json:"-"`
 }
@@ -378,17 +378,17 @@ func (t *Transcript) Unknown(recordType string) {
 
 // Generic builds the stand-in event for a record this build cannot read. The
 // flattening is the caller's, so that this package stays free of it.
-func Generic(recordType, text string, at time.Time, line int) Event {
-	return Event{Kind: KindRecord, Tag: recordType, Text: text, Time: at, Line: line}
+func Generic(recordType, text string, at time.Time) Event {
+	return Event{Kind: KindRecord, Tag: recordType, Text: text, Time: at}
 }
 
 // Orphan is the event for a result whose call is missing. Dropping it was the
 // old behaviour, and it is the wrong one twice over: the output is often the
 // answer someone is looking for, and a pairing rule that has quietly stopped
 // matching looks exactly like a session where nothing happened.
-func (t *Transcript) Orphan(what, output string, at time.Time, line int) Event {
+func (t *Transcript) Orphan(what, output string, at time.Time) Event {
 	t.Unpaired++
-	e := Generic("result with no call in this log", strings.TrimSpace(output), at, line)
+	e := Generic("result with no call in this log", strings.TrimSpace(output), at)
 	if what != "" {
 		e.Tag = what + " with no call in this log"
 	}

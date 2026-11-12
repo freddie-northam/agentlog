@@ -130,7 +130,7 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 			var e entry
 			if json.Unmarshal(line, &e) != nil {
 				t.Records++
-				b.unknown("undecodable-record", time.Time{}, n)
+				b.unknown("undecodable-record", time.Time{})
 				// A record the reader cannot decode is still a link in the message
 				// DAG; dropping it would orphan every record before it.
 				var link struct {
@@ -157,7 +157,7 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 			}
 			remember(e.UUID, e.Timestamp, recordSource{file, n})
 			t.Records++
-			b.entry(e, n)
+			b.entry(e)
 			return nil
 		})
 		if err != nil {
@@ -489,7 +489,7 @@ func (b *builder) link(uuid, parent, logicalParent string) {
 	b.head = uuid
 }
 
-func (b *builder) entry(e entry, line int) {
+func (b *builder) entry(e entry) {
 	if e.Version != "" {
 		b.t.Session.Version = e.Version
 	}
@@ -509,10 +509,10 @@ func (b *builder) entry(e entry, line int) {
 	}
 	switch e.Type {
 	case "assistant":
-		b.assistant(e, line)
+		b.assistant(e)
 		b.talked = true
 	case "user":
-		b.user(e, line)
+		b.user(e)
 		b.talked = true
 	case "continued-in":
 		b.t.Session.ContinuedIn = e.ContinuedIn
@@ -534,13 +534,13 @@ func (b *builder) entry(e entry, line int) {
 			b.note("ran as agent " + e.AgentSetting)
 		}
 	case "pr-link":
-		b.add(generic.Event("pr-link", b.raw, e.Timestamp, line))
+		b.add(generic.Event("pr-link", b.raw, e.Timestamp))
 	case "system":
-		b.system(e, line)
+		b.system(e)
 	case "attachment":
-		b.attachment(e, line)
+		b.attachment(e)
 	case "queue-operation":
-		b.queueOp(e, line)
+		b.queueOp(e)
 	case "cost-state":
 		b.costState(e)
 	case "custom-title":
@@ -552,13 +552,13 @@ func (b *builder) entry(e entry, line int) {
 			b.t.Session.Title = e.AITitle
 		}
 	case "launched", "started", "result", "failed":
-		b.journal(e, line)
+		b.journal(e)
 	default:
 		if ignoredTypes[e.Type] {
 			b.t.Ignore(e.Type)
 			return
 		}
-		b.unknown(e.Type, e.Timestamp, line)
+		b.unknown(e.Type, e.Timestamp)
 	}
 }
 
@@ -573,7 +573,7 @@ func (b *builder) entry(e entry, line int) {
 // reader accepts (read from the 2.1.319 build): launched with an optional
 // hash of the script, started, result, and failed. No log seen so far holds
 // a failed record; the harness's code is what says it exists.
-func (b *builder) journal(e entry, line int) {
+func (b *builder) journal(e entry) {
 	var j struct {
 		AgentID   string          `json:"agentId"`
 		Key       string          `json:"key"`
@@ -597,13 +597,13 @@ func (b *builder) journal(e entry, line int) {
 		b.t.Ignore(e.Type)
 		return
 	case e.Type == "launched" || j.AgentID == "" && j.Key == "":
-		b.unknown(e.Type, e.Timestamp, line)
+		b.unknown(e.Type, e.Timestamp)
 		return
 	}
 	if b.workflow == nil {
 		b.workflow = map[string]string{}
 	}
-	ev := transcript.Event{Kind: transcript.KindAgent, Tag: e.Type, AgentID: j.AgentID, Time: e.Timestamp, Line: line}
+	ev := transcript.Event{Kind: transcript.KindAgent, Tag: e.Type, AgentID: j.AgentID, Time: e.Timestamp}
 	var input []string
 	switch e.Type {
 	case "started":
@@ -664,7 +664,7 @@ func branchNote(branch string) string {
 // unknown stands a record up that this build has no reading for. The record is
 // flattened into the event, so a renamed type costs its pretty rendering and
 // nothing else: it keeps its place, its number, and its content.
-func (b *builder) unknown(recordType string, at time.Time, line int) {
+func (b *builder) unknown(recordType string, at time.Time) {
 	b.t.Unknown(recordType)
 	// One stand-in per record, however many parts of it are strange. Records
 	// are told apart by their count, not their line: a tail window has no
@@ -673,14 +673,14 @@ func (b *builder) unknown(recordType string, at time.Time, line int) {
 		return
 	}
 	b.generic = b.t.Records
-	b.add(generic.Event(recordType, b.raw, at, line))
+	b.add(generic.Event(recordType, b.raw, at))
 }
 
 // queueOp follows the queue of prompts typed while the model was working. A
 // queued prompt is delivered later, as an attachment or as an ordinary user
 // record, so each enqueue stands an event up and each delivery takes one back
 // down. Whatever is still queued when the log ends was never answered.
-func (b *builder) queueOp(e entry, line int) {
+func (b *builder) queueOp(e entry) {
 	b.t.Ignore("queue-operation:" + e.Operation)
 	text := strings.TrimSpace(resultText(e.Content))
 	switch e.Operation {
@@ -689,7 +689,7 @@ func (b *builder) queueOp(e entry, line int) {
 			return
 		}
 		before := len(b.t.Events)
-		b.prompt(e, text, line)
+		b.prompt(e, text)
 		if len(b.t.Events) == before {
 			return
 		}
@@ -765,12 +765,12 @@ func (b *builder) resolveQueue() {
 // attachment handles the one subtype that is a conversation step. The rest are
 // a known class the reader does not model; the subtype is kept in the count so
 // the note says what was dropped.
-func (b *builder) attachment(e entry, line int) {
+func (b *builder) attachment(e entry) {
 	if e.Attachment.Type == "queued_command" {
 		if text := strings.TrimSpace(resultText(e.Attachment.Prompt)); text != "" {
 			b.dequeue(text)
 			before := len(b.t.Events)
-			b.prompt(e, text, line)
+			b.prompt(e, text)
 			if len(b.t.Events) > before && b.t.Events[before].Kind == transcript.KindUser {
 				b.t.Events[before].Tag = transcript.TagQueued
 			}
@@ -780,7 +780,7 @@ func (b *builder) attachment(e entry, line int) {
 	b.t.Ignore("attachment:" + e.Attachment.Type)
 }
 
-func (b *builder) assistant(e entry, line int) {
+func (b *builder) assistant(e entry) {
 	if e.Message.Model != "" && e.Message.Model != "<synthetic>" {
 		b.t.Session.Model = e.Message.Model
 	}
@@ -794,7 +794,7 @@ func (b *builder) assistant(e entry, line int) {
 				text += "\n" + bl.Text
 			}
 		}
-		b.add(transcript.Event{Time: e.Timestamp, Line: line, Kind: transcript.KindError, Tag: "refusal", Text: strings.TrimSpace(text)})
+		b.add(transcript.Event{Time: e.Timestamp, Kind: transcript.KindError, Tag: "refusal", Text: strings.TrimSpace(text)})
 		return
 	}
 	if e.IsAPIErrorMessage {
@@ -804,7 +804,7 @@ func (b *builder) assistant(e entry, line int) {
 				parts = append(parts, bl.Text)
 			}
 		}
-		ev := transcript.Event{Time: e.Timestamp, Kind: transcript.KindError, Text: strings.Join(parts, "\n"), Line: line}
+		ev := transcript.Event{Time: e.Timestamp, Kind: transcript.KindError, Text: strings.Join(parts, "\n")}
 		if e.Error == "rate_limit" || transcript.IsUsageLimit(ev.Text) {
 			ev.Tag = transcript.TagUsageLimit
 		}
@@ -815,18 +815,18 @@ func (b *builder) assistant(e entry, line int) {
 		switch bl.Type {
 		case "text":
 			if t := strings.TrimSpace(bl.Text); t != "" && t != "(no content)" {
-				b.add(transcript.Event{Time: e.Timestamp, Kind: transcript.KindAssistant, Text: t, Line: line})
+				b.add(transcript.Event{Time: e.Timestamp, Kind: transcript.KindAssistant, Text: t})
 			}
 		case "thinking":
 			if t := strings.TrimSpace(bl.Thinking); t != "" {
-				b.add(transcript.Event{Time: e.Timestamp, Kind: transcript.KindReasoning, Text: t, Line: line})
+				b.add(transcript.Event{Time: e.Timestamp, Kind: transcript.KindReasoning, Text: t})
 			}
 		case "tool_use":
 			ev := b.toolUse(bl)
-			ev.Time, ev.Line, ev.CallID = e.Timestamp, line, bl.ID
+			ev.Time, ev.CallID = e.Timestamp, bl.ID
 			b.calls[bl.ID] = b.add(ev)
 		default:
-			b.unknown("assistant:"+bl.Type, e.Timestamp, line)
+			b.unknown("assistant:"+bl.Type, e.Timestamp)
 		}
 	}
 }
@@ -929,7 +929,7 @@ func (b *builder) toolUse(bl block) transcript.Event {
 
 var exitCodeRe = regexp.MustCompile(`^Exit code (-?\d+)`)
 
-func (b *builder) user(e entry, line int) {
+func (b *builder) user(e entry) {
 	if e.IsMeta {
 		// Skill bodies, image attachments and resume markers the harness
 		// injects under a user role.
@@ -938,7 +938,7 @@ func (b *builder) user(e entry, line int) {
 	}
 	var s string
 	if json.Unmarshal(e.Message.Content, &s) == nil {
-		b.prompt(e, s, line)
+		b.prompt(e, s)
 		return
 	}
 	var blocks []block
@@ -947,7 +947,7 @@ func (b *builder) user(e entry, line int) {
 	for _, bl := range blocks {
 		switch bl.Type {
 		case "tool_result":
-			b.toolResult(e, bl, line)
+			b.toolResult(e, bl)
 		case "text":
 			texts = append(texts, bl.Text)
 		case "image":
@@ -955,20 +955,20 @@ func (b *builder) user(e entry, line int) {
 		case "document":
 			texts = append(texts, "[document]")
 		default:
-			b.unknown("user:"+bl.Type, e.Timestamp, line)
+			b.unknown("user:"+bl.Type, e.Timestamp)
 		}
 	}
 	if len(texts) > 0 {
-		b.prompt(e, strings.Join(texts, "\n"), line)
+		b.prompt(e, strings.Join(texts, "\n"))
 	}
 }
 
-func (b *builder) toolResult(e entry, bl block, line int) {
+func (b *builder) toolResult(e entry, bl block) {
 	i, ok := b.calls[bl.ToolUseID]
 	if !ok {
 		// The call is outside the window being read, or the id that used to
 		// join the two has moved. Either way the output is still an answer.
-		b.add(b.t.Orphan("tool_result", resultText(bl.Content), e.Timestamp, line))
+		b.add(b.t.Orphan("tool_result", resultText(bl.Content), e.Timestamp))
 		return
 	}
 	b.answered[i] = true
@@ -1074,8 +1074,8 @@ var bashInputRe = regexp.MustCompile(`(?s)<bash-input>(.*?)</bash-input>`)
 
 // prompt classifies a user-role text: human prompt, harness notification,
 // teammate message, slash command or interrupt marker.
-func (b *builder) prompt(e entry, s string, line int) {
-	ev := transcript.Event{Time: e.Timestamp, Line: line}
+func (b *builder) prompt(e entry, s string) {
+	ev := transcript.Event{Time: e.Timestamp}
 	trimmed := strings.TrimSpace(s)
 	// Harness wrappers can be preceded by a short banner line ("Another
 	// Claude session sent a message:"). Only a single line counts: a person
@@ -1119,7 +1119,7 @@ func (b *builder) prompt(e entry, s string, line int) {
 		// The command is outside the window being read. The output is
 		// still what the person saw.
 		if out != "" {
-			b.add(b.t.Orphan("user-shell output", out, e.Timestamp, line))
+			b.add(b.t.Orphan("user-shell output", out, e.Timestamp))
 		}
 		return
 	case strings.HasPrefix(trimmed, "[Request interrupted by user"):
@@ -1137,10 +1137,10 @@ func (b *builder) prompt(e entry, s string, line int) {
 	b.add(ev)
 }
 
-func (b *builder) system(e entry, line int) {
+func (b *builder) system(e entry) {
 	var content string
 	_ = json.Unmarshal(e.Content, &content)
-	ev := transcript.Event{Time: e.Timestamp, Line: line}
+	ev := transcript.Event{Time: e.Timestamp}
 	switch e.Subtype {
 	case "compact_boundary":
 		ev.Kind, ev.Tag, ev.Text = transcript.KindNotice, transcript.TagCompaction, "context compacted (earlier turns remain in this log)"

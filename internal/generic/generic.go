@@ -23,9 +23,8 @@ import (
 
 // Event builds the best event that can be made of a record without knowing
 // what it is. recordType is what the reader called it when it gave up.
-func Event(recordType string, raw []byte, at time.Time, line int) transcript.Event {
-	e := transcript.Generic(recordType, "", at, line)
-	e.Line = line
+func Event(recordType string, raw []byte, at time.Time) transcript.Event {
+	e := transcript.Generic(recordType, "", at)
 
 	var input, output []string
 	for _, l := range flat.Lines(raw, flat.Options{MaxValue: fieldBytes, MaxLines: recordLines}) {

@@ -251,5 +251,6 @@ for a person's terminal, and agents read pipes.
 - **Every event knows its line.** The line reader gives each line its
   position: the file, the line number, and the offset of its first byte in
   the decompressed log. A reader's `add` stamps the event with the position
-  of the record in hand. The `source_file` and `line` keys in `--json` are
-  copies of that position, and `Place` writes them with it.
+  of the record in hand, so no reader writes a line number by hand. The
+  `source_file` and `line` keys in `--json` are copies of that position, and
+  only `Place` writes them.

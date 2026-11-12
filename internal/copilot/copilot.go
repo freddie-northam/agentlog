@@ -182,7 +182,7 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 		return len(t.Events) - 1
 	}
 	err := jsonl.Read(s.File(), o.Window, func(l jsonl.Line) error {
-		line, n := l.Bytes, l.N()
+		line := l.Bytes
 		at = l.Pos
 		t.Records++
 		var ev event
@@ -195,11 +195,11 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 				return nil
 			}
 			t.Unknown(ev.Type)
-			add(generic.Event(ev.Type, line, ev.Timestamp, n))
+			add(generic.Event(ev.Type, line, ev.Timestamp))
 			return nil
 		}
 		d := &ev.Data
-		base := transcript.Event{Time: ev.Timestamp, Line: n}
+		base := transcript.Event{Time: ev.Timestamp}
 		if d.ParentToolCallID != "" {
 			if !o.Subagents {
 				t.Hidden++
@@ -285,7 +285,7 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 			if !ok {
 				// A completion whose start is not in this file: shown as
 				// itself rather than thrown away.
-				add(t.Orphan(ev.Type, d.Result.Content, ev.Timestamp, n))
+				add(t.Orphan(ev.Type, d.Result.Content, ev.Timestamp))
 				return nil
 			}
 			answered[i] = true
@@ -302,7 +302,7 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 		case "subagent.completed", "subagent.failed":
 			i, ok := calls[d.ToolCallID]
 			if !ok {
-				add(t.Orphan(ev.Type, d.SummaryContent, ev.Timestamp, n))
+				add(t.Orphan(ev.Type, d.SummaryContent, ev.Timestamp))
 				return nil
 			}
 			t.Ignore(ev.Type)
@@ -344,7 +344,7 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 				return nil
 			}
 			t.Unknown(ev.Type)
-			add(generic.Event(ev.Type, line, ev.Timestamp, n))
+			add(generic.Event(ev.Type, line, ev.Timestamp))
 		}
 		if d.ParentToolCallID != "" {
 			for i := before; i < len(t.Events); i++ {
