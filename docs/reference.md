@@ -383,9 +383,13 @@ command that also built or grepped would count that work as agentlog's.
 coverage per package, counted across the whole suite, and `coverage.txt` is
 the recorded baseline. Run `scripts/coverage.sh --check` before committing: it
 fails if the total or any package fell below the baseline. After adding tests,
-`scripts/coverage.sh --update` records the new numbers. The goal is 95%, reached
-with tests of real behaviour: a line that no real case reaches is a candidate
-for deletion, not for a test written only to run it.
+`scripts/coverage.sh --update` records the new numbers. The script runs tests
+with `-short` in a clean environment, so coverage comes only from the fixtures
+and the numbers are the same on every machine. `go test ./...` without
+`-short` still runs the tests that read this machine's logs, which are the
+alarm for a new record type. The goal is 95%, reached with tests of real
+behaviour: a line that no real case reaches is a candidate for deletion, not
+for a test written only to run it.
 
 A bare `agentlog` and `agentlog --help` are the first screens every agent
 reads, and the maintainer placed each line by hand. `TestScreens` pins both,

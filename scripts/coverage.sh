@@ -1,6 +1,8 @@
 #!/bin/sh
 # Statement coverage per package, counted across the whole test suite: a
 # package's code run by another package's tests counts as covered.
+# The numbers come only from the fixtures.
+# go test ./... still runs the tests that read this machine's logs.
 #
 #   scripts/coverage.sh           print coverage
 #   scripts/coverage.sh --update  record it as the baseline in coverage.txt
@@ -12,13 +14,22 @@
 set -eu
 cd "$(dirname "$0")/.."
 profile=$(mktemp "${TMPDIR:-/tmp}/agentlog-cover.XXXXXX")
-trap 'rm -f "$profile"' EXIT
+base=${TMPDIR:-/tmp}
+home=$(mktemp -d "${base%/}/agentlog-cover-home.XXXXXX")
+tmp=$(mktemp -d "${base%/}/agentlog-cover-tmp.XXXXXX")
+trap 'rm -f "$profile"; rm -rf "$home" "$tmp"' EXIT
 # Only packages with tests are run; the rest are still measured through
 # -coverpkg. (Running a package without tests under -coverpkg needs the
 # covdata tool, which some Go installs leave out.)
 tested=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
 # shellcheck disable=SC2086
-go test -count=1 -coverpkg=./... -coverprofile="$profile" $tested >/dev/null
+# Under -short, tests that read this machine's logs skip so coverage measures fixtures alone.
+# A clean environment excludes the caller's harness IDs, log folders, and other runs' worker claims.
+# Separate home and temp folders without // keep paths consistent for TestScreens and TestWhereRunsGo.
+env -i PATH="$PATH" HOME="$home" TMPDIR="$tmp" \
+	GOCACHE="$(go env GOCACHE)" GOMODCACHE="$(go env GOMODCACHE)" GOPATH="$(go env GOPATH)" \
+	GOTOOLCHAIN="$(go env GOTOOLCHAIN)" GOFLAGS="$(go env GOFLAGS)" \
+	go test -short -count=1 -coverpkg=./... -coverprofile="$profile" $tested >"$tmp/test.log" 2>&1 || { tail -40 "$tmp/test.log" >&2; exit 1; }
 
 # A block is covered if any test binary ran it.
 table=$(awk -F'[: ]' 'NR > 1 {
@@ -35,7 +46,7 @@ END {
 	}
 	for (p in total) printf "%-22s %5.1f%%  %5d statements\n", p, 100 * covered[p] / total[p], total[p]
 	printf "%-22s %5.1f%%  %5d statements\n", "TOTAL", 100 * allc / all, all
-}' "$profile" | sort)
+}' "$profile" | LC_ALL=C sort)
 
 case "${1:-}" in
 --update)

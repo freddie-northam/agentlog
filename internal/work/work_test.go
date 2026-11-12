@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestDefaultStaysWellUnderTheMachine(t *testing.T) {
@@ -77,14 +78,24 @@ func TestDoStopsWhenCancelled(t *testing.T) {
 	Limit(2)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	hold := make(chan struct{})
 	var ran int64
-	Do(ctx, 1000, func(int) {
-		if atomic.AddInt64(&ran, 1) == 4 {
-			cancel()
+	// Both slots stay taken until after the cancel, so Do is waiting for a slot when ctx ends.
+	go func() {
+		for atomic.LoadInt64(&ran) < 2 {
+			runtime.Gosched()
 		}
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+		time.Sleep(50 * time.Millisecond)
+		close(hold)
+	}()
+	Do(ctx, 1000, func(int) {
+		atomic.AddInt64(&ran, 1)
+		<-hold
 	})
-	if n := atomic.LoadInt64(&ran); n > 100 {
-		t.Errorf("ran %d of 1000 tasks after cancellation, want it to stop promptly", n)
+	if n := atomic.LoadInt64(&ran); n != 2 {
+		t.Errorf("ran %d of 1000 tasks, want only the 2 that held the slots when ctx ended", n)
 	}
 	if ctx.Err() == nil {
 		t.Fatal("test did not cancel")
