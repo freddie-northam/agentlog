@@ -190,8 +190,19 @@ func outcome(t *testing.T, s shapes.Shape) string {
 	if len(tr.Events)+unread+ignored+tr.Hidden == 0 && kinds == "-" {
 		return "DROPPED — nothing came back, and nothing said why"
 	}
+	for _, e := range tr.Events {
+		if e.NoInput() && tr.Unknowns[e.Tag] == 0 && knownEmpty[s.Key] == "" {
+			return "EMPTY — a call came back with no input, so a field it reads has moved"
+		}
+	}
 	return fmt.Sprintf("events=%-2d unread=%-2d ignored=%-2d hidden=%-2d %s",
 		len(tr.Events), unread, ignored, tr.Hidden, kinds)
+}
+
+// knownEmpty lists the corpus shapes whose call really carries no input, each with the reason.
+var knownEmpty = map[string]string{
+	"codex/event_msg:item_completed:Extension/34542239": "clock.sleep records only how long it slept",
+	"copilot/tool.execution_start/a633a709":             "redaction turns the patch into a placeholder that does not parse",
 }
 
 // session lists what a record told the reader about the session itself. A
@@ -324,4 +335,18 @@ func at(lines []string, i int) string {
 		return lines[i]
 	}
 	return "(nothing)"
+}
+
+// A field that moves inside a known record leaves the type readable and the call empty. The replay must refuse that outcome, or -update approves it.
+func TestACallWithItsInputMovedIsUnreadable(t *testing.T) {
+	for _, tc := range []struct{ name, block string }{
+		{"input renamed", `{"type":"tool_use","id":"c1","name":"Bash","arguments":{"command":"ls"}}`},
+		{"key inside input renamed", `{"type":"tool_use","id":"c1","name":"Bash","input":{"cmd":"ls"}}`},
+	} {
+		raw := `{"type":"assistant","uuid":"u1","parentUuid":null,"sessionId":"s","timestamp":"2026-11-11T10:00:00Z","version":"2.1.322",` +
+			`"message":{"id":"m1","role":"assistant","content":[` + tc.block + `]}}`
+		if line := outcome(t, shapes.Of(transcript.Claude, "", []byte(raw))); !unreadable(line) {
+			t.Errorf("%s: replayed as %q, which the golden would accept", tc.name, line)
+		}
+	}
 }

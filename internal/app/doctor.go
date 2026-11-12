@@ -82,6 +82,7 @@ type health struct {
 	Records  int            `json:"records"`
 	Unread   int            `json:"unread_records"`
 	Unpaired int            `json:"unpaired_results,omitempty"`
+	Blank    blank          `json:"calls_without_input,omitzero"`
 	Failed   int            `json:"unreadable_files,omitempty"`
 	Known    int            `json:"known_types"`
 	Versions map[string]int `json:"cli_versions,omitempty"`
@@ -99,6 +100,13 @@ type unread struct {
 	Version  string         `json:"cli_version,omitempty"`
 	Versions map[string]int `json:"cli_versions,omitempty"`
 	Declared string         `json:"declared_as,omitempty"` // a table entry exists but the reader has no case
+}
+
+// blank counts the calls whose input this build read nothing from.
+type blank struct {
+	Count    int            `json:"count"`
+	Ref      string         `json:"sample_ref"`
+	Versions map[string]int `json:"cli_versions"`
 }
 
 // Coverage is the share of records this build has a reading for.
@@ -134,6 +142,10 @@ func (h health) print(w io.Writer, empty string) {
 		// Whole files were read here, so nothing is outside the window: these
 		// are results whose call the pairing rule failed to find.
 		fmt.Fprintf(w, "          %s whose call was not found, shown on their own\n", plural(h.Unpaired, "tool result"))
+	}
+	if b := h.Blank; b.Count > 0 {
+		fmt.Fprintf(w, "          %s with no input this build can read   agentlog %s\n", plural(b.Count, "tool call"), b.Ref)
+		fmt.Fprintf(w, "            observed versions: %s\n", versions(b.Versions))
 	}
 	for _, u := range h.Types {
 		fmt.Fprintf(w, "          %-34s ×%-6d in %-12s agentlog %s%s\n",
@@ -171,6 +183,7 @@ func examine(env Env, ss []*transcript.Session, opts options) health {
 		h.Records += t.Records
 		h.Unpaired += t.Unpaired
 		h.Versions[t.Session.Version]++
+		h.Blank.add(t)
 		for name, n := range t.Unknowns {
 			h.Unread += n
 			u := types[name]
@@ -199,6 +212,29 @@ func examine(env Env, ss []*transcript.Session, opts options) health {
 		return h.Types[i].Type < h.Types[j].Type
 	})
 	return h
+}
+
+// add counts one transcript's blank calls, by session for the versions.
+func (b *blank) add(t *transcript.Transcript) {
+	n := 0
+	for _, e := range t.Events {
+		// A record this build cannot read is already reported by its type.
+		if !e.NoInput() || t.Unknowns[e.Tag] > 0 {
+			continue
+		}
+		n++
+		if b.Ref == "" {
+			b.Ref = fmt.Sprintf("%s#%d", render.Ref(&t.Session), e.Index)
+		}
+	}
+	if n == 0 {
+		return
+	}
+	if b.Versions == nil {
+		b.Versions = map[string]int{}
+	}
+	b.Count += n
+	b.Versions[t.Session.Version]++
 }
 
 // sampleOf finds the stand-in event for one unread type and returns the ref

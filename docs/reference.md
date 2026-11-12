@@ -264,6 +264,16 @@ its count, the sessions it appeared in, the exact ref that opens one, and what
 that record contains — enough to write the missing case without opening a raw
 log.
 
+A field can also move inside a record type this build knows. The type still
+reads, so the share read does not fall, but the call comes back empty: a
+command with no command, an edit with no file. `doctor` counts those calls,
+with the versions they came from and a ref that opens one. On logs that read
+correctly the count is zero, so any count is worth a look. A few calls carry
+no input in the log itself, for example a Codex web search that opened a page
+with no address. The ref shows which kind it is in one call. The replay test
+refuses an empty call for the same reason, except for the corpus shapes it
+names with their reasons.
+
 Each reader also states what it knows as a table (`internal/spec`), checked
 against the reader by a test, so a fix is usually one line. A record type can
 be named without a rebuild in `~/.config/agentlog/types.json`:

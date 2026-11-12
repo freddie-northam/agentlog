@@ -368,6 +368,22 @@ func Generic(recordType, text string, at time.Time, line int) Event {
 	return Event{Kind: KindRecord, Tag: recordType, Text: text, Time: at, Line: line}
 }
 
+// NoInput reports a call this build read nothing from. A harness that moves a field inside a known record leaves the type readable and the call empty, and no record count shows that.
+func (e Event) NoInput() bool {
+	switch e.Kind {
+	case KindTool:
+		return e.Input == ""
+	case KindEdit:
+		for _, c := range e.Changes {
+			if c.Path != "" {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // Orphan is the event for a result whose call is missing. Dropping it was the
 // old behaviour, and it is the wrong one twice over: the output is often the
 // answer someone is looking for, and a pairing rule that has quietly stopped
