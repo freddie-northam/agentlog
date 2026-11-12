@@ -183,13 +183,19 @@ type Event struct {
 	CallID string `json:"-"` // provider call id, used while pairing results
 	Line   int    `json:"line"`
 
-	// At is where the event's record sits.
-	// Source and Line are its projection in --json, and Place writes all three so they agree.
-	At jsonl.Pos `json:"-"`
+	// At is where the event's record sits, and Result is where its result's record sits.
+	// An empty Result.Path() means the event has no result record.
+	// Source, Line, ResultSource and ResultLine are their projection in --json.
+	// Place and Answer write each position with its projection, so the two agree.
+	At     jsonl.Pos `json:"-"`
+	Result jsonl.Pos `json:"-"`
 }
 
 // Place records where the event's record sits.
 func (e *Event) Place(p jsonl.Pos) { e.At, e.Source, e.Line = p, p.Path(), p.N() }
+
+// Answer records where the event's result sits.
+func (e *Event) Answer(p jsonl.Pos) { e.Result, e.ResultSource, e.ResultLine = p, p.Path(), p.N() }
 
 // GitOp is a repository operation a step performed. The harness records it
 // beside the tool result, which is the only place the sha a session produced

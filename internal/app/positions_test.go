@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ import (
 	"github.com/Ryheff24/agentlog/internal/zstd/zstdtest"
 )
 
-// Every event must lead back to the line of the record it came from, so an agent can read that record itself.
+// Every event must lead back to the line of the record it came from, and every result to the line of its record, so an agent can read that record itself.
 // The checks recount each position from the raw bytes of the log, never from agentlog.
 // The world gains a compressed Codex rollout and a Claude session with a log in two folders, and every session is read whole and through head and tail windows.
 func TestPositions(t *testing.T) {
@@ -51,18 +52,44 @@ func TestPositions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, win := range []jsonl.Window{{}, {HeadBytes: st.Size() / 2}, {TailBytes: st.Size() / 2}, {TailBytes: st.Size() * 2}} {
+			// A tail window wider than the log reads all of it, so it must find every position a whole read finds.
+			var whole []string
+			for _, win := range []jsonl.Window{{}, {HeadBytes: st.Size() / 2}, {TailBytes: st.Size() / 2}, {TailBytes: 1 << 30}} {
 				tr, err := p.Load(s, transcript.Load{Window: win, Subagents: true, Branches: true})
 				if err != nil {
 					t.Fatal(err)
 				}
+				var got []string
 				for _, e := range tr.Events {
+					got = append(got, fmt.Sprintf("%s at %d, result %s at %d", e.Kind, e.At.Off(), filepath.Base(e.Result.Path()), e.Result.Off()))
 					where := s.ID[:8] + "#" + itoa(e.Index) + " " + string(e.Kind)
 					checkPos(t, where, "event", e.At, win, content)
 					if e.Source != e.At.Path() || e.Line != e.At.N() {
 						t.Errorf("%s %+v: source_file %q line %d, position %s:%d", where, win, e.Source, e.Line, e.At.Path(), e.At.N())
 					}
+					if e.Result.Path() != "" {
+						checkPos(t, where, "result", e.Result, win, content)
+						if e.Result == e.At {
+							t.Errorf("%s %+v: the result names the event's own record", where, win)
+						}
+						seen["result"]++
+						if win.TailBytes > 0 {
+							seen["tail result"]++
+						}
+					}
+					switch {
+					case p.Name() == "copilot" && (e.ResultSource != "" || e.ResultLine != 0):
+						t.Errorf("%s %+v: a Copilot result gained result_source_file %q result_line %d in --json", where, win, e.ResultSource, e.ResultLine)
+					case p.Name() != "copilot" && (e.ResultSource != e.Result.Path() || e.ResultLine != e.Result.N()):
+						t.Errorf("%s %+v: result_source_file %q result_line %d, result position %s:%d", where, win, e.ResultSource, e.ResultLine, e.Result.Path(), e.Result.N())
+					}
+					if e.CallID != "" && !e.Pending && e.Result.Path() == "" {
+						t.Errorf("%s %+v: a paired call has no result position", where, win)
+					}
 					seen[p.Name()]++
+					if win.TailBytes == 1<<30 && len(s.Files) == 1 {
+						seen["wide tail"]++
+					}
 					if len(s.Files) > 1 {
 						seen["two files"]++
 					}
@@ -73,11 +100,17 @@ func TestPositions(t *testing.T) {
 						seen["tail"]++
 					}
 				}
+				switch {
+				case win.Whole():
+					whole = got
+				case win.TailBytes == 1<<30 && len(s.Files) == 1 && strings.Join(got, "\n") != strings.Join(whole, "\n"):
+					t.Errorf("%s: a tail window over the whole log finds\n%s\nwhere a whole read finds\n%s", s.ID[:8], strings.Join(got, "\n"), strings.Join(whole, "\n"))
+				}
 			}
 		}
 	}
 	t.Logf("events checked: %v", seen)
-	for _, want := range []string{"claude", "codex", "copilot", "two files", "compressed", "tail"} {
+	for _, want := range []string{"claude", "codex", "copilot", "two files", "compressed", "tail", "result", "tail result", "wide tail"} {
 		if seen[want] == 0 {
 			t.Errorf("no %s event was checked", want)
 		}
@@ -136,6 +169,7 @@ func (w *world) positionCases() {
 	w.write(filepath.Join(w.root, "claude", "projects", "-work-shop2", checkoutID+".jsonl"), time.Minute, "\n"+string(b)+more)
 
 	// Codex can log the item before the legacy record of the same answer, so the merge takes its other branch.
+	// The prompt comes as an event first and its response item second, the order the other world sessions do not have.
 	id := "01a0aaaa-0000-7000-8000-0000000000aa"
 	rec := func(typ string, payload map[string]any) map[string]any {
 		return map[string]any{"timestamp": w.at(20 * time.Minute), "type": typ, "payload": payload}
@@ -143,6 +177,8 @@ func (w *world) positionCases() {
 	day := w.now.Add(-20 * time.Minute)
 	w.file(filepath.Join(w.root, "codex", "sessions", day.Format("2006"), day.Format("01"), day.Format("02"), "rollout-"+day.Format("2006-01-02T15-04-05")+"-"+id+".jsonl"), 20*time.Minute, []map[string]any{
 		rec("session_meta", map[string]any{"id": id, "timestamp": w.at(20 * time.Minute), "cwd": "/work/shop", "originator": "codex_cli_rs", "cli_version": "0.130.0"}),
+		rec("event_msg", map[string]any{"type": "user_message", "message": "cover the refund path"}),
+		rec("response_item", map[string]any{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": "cover the refund path"}}}),
 		rec("event_msg", map[string]any{"type": "item_completed", "thread_id": id, "item": map[string]any{"type": "AgentMessage", "phase": "final_answer",
 			"content": []map[string]any{{"type": "Text", "text": "The refund path is covered."}}}}),
 		rec("response_item", map[string]any{"type": "message", "role": "assistant", "phase": "final_answer", "content": []map[string]any{{"type": "output_text", "text": "The refund path is covered."}}}),

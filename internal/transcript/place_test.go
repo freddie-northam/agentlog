@@ -22,8 +22,9 @@ func TestPositionAddsNoJSONKey(t *testing.T) {
 	}
 	e := Event{Kind: KindUser, Text: "x"}
 	e.Place(p)
+	e.Answer(p)
 	got, _ := json.Marshal(e)
-	want := `{"source_file":"` + path + `","i":0,"time":"0001-01-01T00:00:00Z","kind":"user","text":"x","line":1}`
+	want := `{"source_file":"` + path + `","result_line":1,"result_source_file":"` + path + `","i":0,"time":"0001-01-01T00:00:00Z","kind":"user","text":"x","line":1}`
 	if string(got) != want {
 		t.Errorf("event JSON = %s\nwant          %s", got, want)
 	}

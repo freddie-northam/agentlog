@@ -290,6 +290,8 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 			}
 			answered[i] = true
 			e := &t.Events[i]
+			// --json has never printed a Copilot result position, so only the hidden one is set.
+			e.Result = at
 			e.Output = d.Result.Content
 			if d.Success != nil && !*d.Success {
 				e.Failed = true

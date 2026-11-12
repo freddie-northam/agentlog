@@ -973,7 +973,7 @@ func (b *builder) toolResult(e entry, bl block, line int) {
 	}
 	b.answered[i] = true
 	ev := &b.t.Events[i]
-	ev.ResultSource, ev.ResultLine = b.at.Path(), line
+	ev.Answer(b.at)
 	ev.Output = resultText(bl.Content)
 	ev.Failed = bl.IsError
 	if m := exitCodeRe.FindStringSubmatch(ev.Output); m != nil {
