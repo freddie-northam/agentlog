@@ -11,6 +11,7 @@ import (
 
 	"github.com/Ryheff24/agentlog/internal/catalog"
 	"github.com/Ryheff24/agentlog/internal/claude"
+	"github.com/Ryheff24/agentlog/internal/jsonl"
 	"github.com/Ryheff24/agentlog/internal/transcript"
 )
 
@@ -79,7 +80,12 @@ func TestImageSourcesAndErrors(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "record.jsonl")
 	tr := &transcript.Transcript{Session: transcript.Session{Files: []string{path}, ID: siblingID}}
-	evs := []transcript.Event{{Index: 1, Line: 1, Source: path}}
+	// Only a read builds a position, and the first line's position does not depend on what the line holds.
+	os.WriteFile(path, []byte("{}\n"), 0600)
+	evs := []transcript.Event{{Index: 1}}
+	if err := jsonl.Read(path, jsonl.Window{}, func(l jsonl.Line) error { evs[0].Place(l.Pos); return nil }); err != nil {
+		t.Fatal(err)
+	}
 	for _, body := range []string{"bad json", `{"type":"image","source":{"media_type":"image/png","data":"not base64!"}}`} {
 		os.WriteFile(path, []byte(body+"\n"), 0600)
 		if _, err := readImages(tr, evs); err == nil {
@@ -128,5 +134,44 @@ func TestMultiImageSourceFailuresAreReturned(t *testing.T) {
 	err := imageSessions(env, &catalog.Result{Matches: []catalog.Match{{Session: missing}}}, catalog.Clues{}, options{})
 	if err == nil {
 		t.Fatal("missing log accepted")
+	}
+}
+
+// An image can sit in a tool result, a record of its own, and a session can carry on in a second log file.
+// Both images must come back, each under the event that owns it.
+func TestImagesFromResultsAndSecondFiles(t *testing.T) {
+	w := bareWorld(t)
+	png := func(data string) map[string]any {
+		return map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": data}}
+	}
+	first := w.claude(siblingID, "/work/images-old", 2*time.Hour)
+	last := first.add("-", map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []any{text("what is this"), png("cHJvbXB0")}}})
+	first.save(filepath.Join(w.claudeProject(first.cwd), siblingID+".jsonl"), time.Hour)
+	second := w.claude(siblingID, "/work/images", time.Hour)
+	second.prefix = "7c0e0000"
+	second.assistant(last, "tool_use", toolUse("t1", "Read", map[string]any{"file_path": "/work/images/shot.png"}))
+	second.add("", map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []any{
+		map[string]any{"type": "tool_result", "tool_use_id": "t1", "content": []any{png("cmVzdWx0")}}}}})
+	second.save(filepath.Join(w.claudeProject(second.cwd), siblingID+".jsonl"), time.Minute)
+
+	out, code := w.run("/", siblingID, "--images", "--json")
+	if code != 0 {
+		t.Fatal(out)
+	}
+	var imgs []imageFile
+	if err := json.Unmarshal([]byte(out), &imgs); err != nil {
+		t.Fatal(err, out)
+	}
+	var got []string
+	for _, img := range imgs {
+		data, err := os.ReadFile(img.Path)
+		os.Remove(img.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, strings.SplitN(img.Ref, "#", 2)[1]+" "+string(data))
+	}
+	if strings.Join(got, ", ") != "1 prompt, 2 result" {
+		t.Errorf("images = %q, want the prompt's under #1 and the result's under #2", got)
 	}
 }

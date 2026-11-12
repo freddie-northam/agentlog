@@ -89,24 +89,17 @@ type imageFile struct {
 // imageView reads only the sourced records for the selected events. Blobs
 // never enter output; inline images are materialized in the writable temp dir.
 func readImages(t *transcript.Transcript, events []transcript.Event) ([]imageFile, error) {
-	type source struct {
-		path string
-		line int
-	}
-	refs := map[source]string{}
+	refs := map[jsonl.Pos]string{}
 	for _, e := range events {
-		path := e.Source
-		if path == "" {
-			path = t.Session.File()
-		}
-		refs[source{path, e.Line}] = fmt.Sprintf("%s#%d", render.Ref(&t.Session), e.Index)
+		refs[e.At] = fmt.Sprintf("%s#%d", render.Ref(&t.Session), e.Index)
+		// Copilot results have no result_line, and --images has never read them.
 		if e.ResultLine > 0 {
-			refs[source{e.ResultSource, e.ResultLine}] = fmt.Sprintf("%s#%d", render.Ref(&t.Session), e.Index)
+			refs[e.Result] = fmt.Sprintf("%s#%d", render.Ref(&t.Session), e.Index)
 		}
 	}
 	paths := map[string]bool{}
-	for src := range refs {
-		paths[src.path] = true
+	for at := range refs {
+		paths[at.Path()] = true
 	}
 	var ordered []string
 	for p := range paths {
@@ -116,7 +109,7 @@ func readImages(t *transcript.Transcript, events []transcript.Event) ([]imageFil
 	var images []imageFile
 	for _, path := range ordered {
 		if err := jsonl.Read(path, jsonl.Window{}, func(l jsonl.Line) error {
-			ref, ok := refs[source{path, l.N()}]
+			ref, ok := refs[l.Pos]
 			if !ok {
 				return nil
 			}
