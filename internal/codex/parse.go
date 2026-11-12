@@ -20,7 +20,7 @@ import (
 
 // record is one rollout line, lazily decoded.
 type record struct {
-	file    string
+	pos     jsonl.Pos // where the record sits
 	line    int
 	ts      time.Time
 	ordinal int64 // -1 when absent (older CLI versions)
@@ -76,7 +76,7 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 			if r.typ == "session_meta" && (i > 0 || len(recs) > 0) {
 				return nil
 			}
-			r.file = pg.path
+			r.pos = l.Pos
 			recs = append(recs, r)
 			return nil
 		})
@@ -282,7 +282,7 @@ func (b *builder) unknown(recordType string, r record) {
 }
 
 func (b *builder) add(e transcript.Event) int {
-	e.Source = b.current.file
+	e.Place(b.current.pos)
 	transcript.ClassifyPrompt(&e, &b.t.Session)
 	transcript.PromptHints(&e, b.current.raw)
 	transcript.Localise(&e, b.cwdOr())
@@ -339,18 +339,18 @@ func (b *builder) merge(i int, e transcript.Event, src source) {
 	b.origins[i].paired = true
 	b.answered[i] = true
 	dst := &b.t.Events[i]
-	originalSource := dst.Source
+	at := dst.At // the event keeps the position of the record that added it
 	if src == fromItem {
 		preferItem(dst, e)
 	} else {
 		merged := e
 		preferItem(&merged, *dst)
-		merged.Time, merged.Line = dst.Time, dst.Line
+		merged.Time = dst.Time
 		*dst = merged
 	}
-	dst.Source = originalSource
+	dst.Place(at)
 	if e.Line > 0 {
-		dst.ResultLine, dst.ResultSource = e.Line, b.current.file
+		dst.ResultLine, dst.ResultSource = e.Line, b.current.pos.Path()
 	}
 	if dst.CallID == "" && e.CallID != "" {
 		dst.CallID = e.CallID
@@ -576,7 +576,7 @@ func (b *builder) eventMsg(r record) {
 		if text != "" {
 			i := b.addPaired(transcript.Event{Time: r.ts, Kind: transcript.KindUser, Text: text, Line: r.line}, fromLegacy, textKey("user", text), "")
 			if other, ok := b.userRecords[textKey("user", text)]; ok {
-				b.t.Events[i].ResultSource, b.t.Events[i].ResultLine = other.file, other.line
+				b.t.Events[i].ResultSource, b.t.Events[i].ResultLine = other.pos.Path(), other.line
 				delete(b.userRecords, textKey("user", text))
 			}
 		}
@@ -775,7 +775,7 @@ func (b *builder) responseItem(r record) {
 				for i := len(b.t.Events) - 1; i >= 0 && i >= len(b.t.Events)-pairWindow; i-- {
 					e := &b.t.Events[i]
 					if e.Kind == transcript.KindUser && textKey("user", e.Text) == key {
-						e.ResultSource, e.ResultLine = r.file, r.line
+						e.ResultSource, e.ResultLine = r.pos.Path(), r.line
 						delete(b.userRecords, key)
 						break
 					}
@@ -837,7 +837,7 @@ func (b *builder) responseItem(r record) {
 		}
 		b.answered[i] = true
 		if e := &b.t.Events[i]; e.Output == "" || e.Kind == transcript.KindAgent {
-			e.ResultLine, e.ResultSource = r.line, r.file
+			e.ResultLine, e.ResultSource = r.line, r.pos.Path()
 			attachOutput(e, m.Output) // a paired item's output is already unwrapped
 		}
 	case "custom_tool_call":

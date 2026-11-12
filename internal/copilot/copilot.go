@@ -171,8 +171,9 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 	childOf := map[int]string{}       // event index -> task call id that ran it
 	skipped := map[string]bool{}      // call ids deliberately not modelled, so
 	//                                   their completions are not read as lost
+	var at jsonl.Pos // where the record being decoded sits
 	add := func(e transcript.Event) int {
-		e.Source = s.File()
+		e.Place(at)
 		transcript.ClassifyPrompt(&e, &t.Session)
 		// Copilot writes tool arguments as the model produced them, so a path
 		// is relative whenever the model wrote it that way.
@@ -182,6 +183,7 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 	}
 	err := jsonl.Read(s.File(), o.Window, func(l jsonl.Line) error {
 		line, n := l.Bytes, l.N()
+		at = l.Pos
 		t.Records++
 		var ev event
 		if err := json.Unmarshal(line, &ev); err != nil {

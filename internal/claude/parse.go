@@ -123,11 +123,10 @@ func (p *Provider) Load(s *transcript.Session, o transcript.Load) (*transcript.T
 		}
 	}
 	for _, file := range files {
-		b.file = file
 		maps.Copy(prior, seen)
 		err := jsonl.Read(file, o.Window, func(l jsonl.Line) error {
 			line, n := l.Bytes, l.N()
-			b.raw = line
+			b.at, b.raw = l.Pos, line
 			var e entry
 			if json.Unmarshal(line, &e) != nil {
 				t.Records++
@@ -248,7 +247,7 @@ type builder struct {
 	source  []string          // record uuid per event, parallel to t.Events
 	cur     string            // uuid of the record being decoded
 
-	file      string            // the log file being read
+	at        jsonl.Pos         // where the record being decoded sits
 	raw       []byte            // the record being decoded, for the stand-in event
 	generic   int               // record (by count) already given a stand-in, so one record gives one
 	cwd       string            // the directory the current record ran in
@@ -276,7 +275,7 @@ type pending struct {
 }
 
 func (b *builder) add(e transcript.Event) int {
-	e.Source = b.file
+	e.Place(b.at)
 	transcript.ClassifyPrompt(&e, &b.t.Session)
 	transcript.PromptHints(&e, b.raw)
 	transcript.Localise(&e, b.cwdOr())
@@ -974,7 +973,7 @@ func (b *builder) toolResult(e entry, bl block, line int) {
 	}
 	b.answered[i] = true
 	ev := &b.t.Events[i]
-	ev.ResultSource, ev.ResultLine = b.file, line
+	ev.ResultSource, ev.ResultLine = b.at.Path(), line
 	ev.Output = resultText(bl.Content)
 	ev.Failed = bl.IsError
 	if m := exitCodeRe.FindStringSubmatch(ev.Output); m != nil {

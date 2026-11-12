@@ -248,3 +248,8 @@ for a person's terminal, and agents read pipes.
   zero; "working-tree state unknown" rather than a guess.
 - **Images go to files.** `--images` writes inline images to temp files and
   never prints base64 into a context.
+- **Every event knows its line.** The line reader gives each line its
+  position: the file, the line number, and the offset of its first byte in
+  the decompressed log. A reader's `add` stamps the event with the position
+  of the record in hand. The `source_file` and `line` keys in `--json` are
+  copies of that position, and `Place` writes them with it.
