@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// A known record type whose fields moved is read without error and loses its content. doctor must say so, because nothing else does.
 func TestDoctorReportsCallsWithNoInputRead(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -19,8 +18,7 @@ func TestDoctorReportsCallsWithNoInputRead(t *testing.T) {
 		{"edit path renamed", toolUse("c1", "Edit", map[string]any{"path": "a.go", "old_string": "a", "new_string": "b"}), true},
 		{"intact call", toolUse("c1", "Bash", map[string]any{"command": "go test ./..."}), false},
 		{"tool that takes no input", toolUse("c1", "EnterPlanMode", map[string]any{}), false},
-		// doctor already lists an unknown block type as unread. Its stand-in must not count twice.
-		{"block type this build cannot read", map[string]any{"type": "server_tool_use", "id": "s1", "name": "advisor", "input": map[string]any{}}, false},
+		{"unknown block type, already listed as unread", map[string]any{"type": "server_tool_use", "id": "s1", "name": "advisor", "input": map[string]any{}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := bareWorld(t)

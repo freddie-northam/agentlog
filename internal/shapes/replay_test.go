@@ -191,15 +191,14 @@ func outcome(t *testing.T, s shapes.Shape) string {
 		return "DROPPED — nothing came back, and nothing said why"
 	}
 	for _, e := range tr.Events {
-		if e.NoInput() && tr.Unknowns[e.Tag] == 0 && knownEmpty[s.Key] == "" {
-			return "EMPTY — a call came back with no input, so a field it reads has moved"
+		if tr.NoInput(e) && knownEmpty[s.Key] == "" {
+			return "EMPTY: a call came back with no input, so a field it reads has moved"
 		}
 	}
 	return fmt.Sprintf("events=%-2d unread=%-2d ignored=%-2d hidden=%-2d %s",
 		len(tr.Events), unread, ignored, tr.Hidden, kinds)
 }
 
-// knownEmpty lists the corpus shapes whose call really carries no input, each with the reason.
 var knownEmpty = map[string]string{
 	"codex/event_msg:item_completed:Extension/34542239": "clock.sleep records only how long it slept",
 	"copilot/tool.execution_start/a633a709":             "redaction turns the patch into a placeholder that does not parse",
@@ -337,7 +336,6 @@ func at(lines []string, i int) string {
 	return "(nothing)"
 }
 
-// A field that moves inside a known record leaves the type readable and the call empty. The replay must refuse that outcome, or -update approves it.
 func TestACallWithItsInputMovedIsUnreadable(t *testing.T) {
 	for _, tc := range []struct{ name, block string }{
 		{"input renamed", `{"type":"tool_use","id":"c1","name":"Bash","arguments":{"command":"ls"}}`},

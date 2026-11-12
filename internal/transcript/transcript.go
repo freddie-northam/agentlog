@@ -368,8 +368,11 @@ func Generic(recordType, text string, at time.Time, line int) Event {
 	return Event{Kind: KindRecord, Tag: recordType, Text: text, Time: at, Line: line}
 }
 
-// NoInput reports a call this build read nothing from. A harness that moves a field inside a known record leaves the type readable and the call empty, and no record count shows that.
-func (e Event) NoInput() bool {
+// NoInput reports a call of a known record type that this build read nothing from.
+func (t *Transcript) NoInput(e Event) bool {
+	if t.Unknowns[e.Tag] > 0 {
+		return false
+	}
 	switch e.Kind {
 	case KindTool:
 		return e.Input == ""

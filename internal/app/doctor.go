@@ -76,17 +76,17 @@ const doctorSessions = 25
 
 // health is one harness's report.
 type health struct {
-	Provider string         `json:"provider"`
-	Present  bool           `json:"present"`
-	Sessions int            `json:"sessions"`
-	Records  int            `json:"records"`
-	Unread   int            `json:"unread_records"`
-	Unpaired int            `json:"unpaired_results,omitempty"`
-	Blank    blank          `json:"calls_without_input,omitzero"`
-	Failed   int            `json:"unreadable_files,omitempty"`
-	Known    int            `json:"known_types"`
-	Versions map[string]int `json:"cli_versions,omitempty"`
-	Types    []unread       `json:"unread_types,omitempty"`
+	Provider string            `json:"provider"`
+	Present  bool              `json:"present"`
+	Sessions int               `json:"sessions"`
+	Records  int               `json:"records"`
+	Unread   int               `json:"unread_records"`
+	Unpaired int               `json:"unpaired_results,omitempty"`
+	Blank    callsWithoutInput `json:"calls_without_input,omitzero"`
+	Failed   int               `json:"unreadable_files,omitempty"`
+	Known    int               `json:"known_types"`
+	Versions map[string]int    `json:"cli_versions,omitempty"`
+	Types    []unread          `json:"unread_types,omitempty"`
 }
 
 // unread is one record type this build has no case for, with everything
@@ -102,8 +102,7 @@ type unread struct {
 	Declared string         `json:"declared_as,omitempty"` // a table entry exists but the reader has no case
 }
 
-// blank counts the calls whose input this build read nothing from.
-type blank struct {
+type callsWithoutInput struct {
 	Count    int            `json:"count"`
 	Ref      string         `json:"sample_ref"`
 	Versions map[string]int `json:"cli_versions"`
@@ -214,12 +213,10 @@ func examine(env Env, ss []*transcript.Session, opts options) health {
 	return h
 }
 
-// add counts one transcript's blank calls, by session for the versions.
-func (b *blank) add(t *transcript.Transcript) {
+func (b *callsWithoutInput) add(t *transcript.Transcript) {
 	n := 0
 	for _, e := range t.Events {
-		// A record this build cannot read is already reported by its type.
-		if !e.NoInput() || t.Unknowns[e.Tag] > 0 {
+		if !t.NoInput(e) {
 			continue
 		}
 		n++
