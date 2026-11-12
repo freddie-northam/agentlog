@@ -65,12 +65,6 @@ commit that fixes it; that commit is the record.
   until each is named. This one will never stay fixed: it is the alarm
   described in DESIGN.md, "Formats change every day".
 
-- **`--content` ignores `--grep`.** With a word clue and `--content`, the
-  regex has no effect. `agentlog record --content --grep zzqqxx_nomatch
-  --count all` reports 195,022 events in 3,367 sessions. The same command
-  without `--content` reports 0. An agent that adds `--content` to narrow a
-  search gets every event that holds the word instead. Found on 2 November 2026.
-
 - **Prompts that a program wrote count as the person's.** On one Mac, 515 of
   754 top-level Claude sessions came from a per-commit security-review hook
   that starts Claude through the SDK. Their first prompt is "Review this

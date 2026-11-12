@@ -8,6 +8,7 @@ import (
 
 // options are the parsed view flags; everything else is a clue.
 type options struct {
+	within                                                               string // The --content words, when --grep is the pattern.
 	user, count, brief, content, images, tree, includeHandbacks          bool
 	list, edits, files, subagents, json, full, reasoning, branches, help bool
 	usage, tools, projects, bytes                                        bool

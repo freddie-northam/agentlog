@@ -89,10 +89,12 @@ the log. `--kind user` remains the broader user-role view.
 
 `--kind refusal` selects refusal errors and preserves recorded category and
 explanation. `--content` searches word clues in event content rather than
-project/title/prompts; `--grep` remains the regular-expression form. `--count`
-prints matching event/session counts before head/tail paging. `--brief` prints
-one line per event, at most 160 characters. Text views report returned stdout
-bytes on stderr; JSON keeps its typed schema and run monitoring measures bytes.
+project/title/prompts; `--grep` remains the regular-expression form. With
+both, the words pick sessions whose events hold them, and `--grep` picks the
+events. `--count` prints matching event/session counts before head/tail
+paging. `--brief` prints one line per event, at most 160 characters. Text
+views report returned stdout bytes on stderr; JSON keeps its typed schema and
+run monitoring measures bytes.
 
 Historical output from standalone agentlog calls is marked
 `[handback]`. Grep excludes it unless `--include-handbacks` is supplied;

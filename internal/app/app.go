@@ -113,7 +113,12 @@ func run(env Env, opts options, clueArgs []string) error {
 	clues := catalog.ParseClues(clueArgs, cat.CWD, cat.Now)
 	clues.ReadPrompts = opts.list
 	if opts.content && len(clues.Words) > 0 {
-		opts.grep = regexp.QuoteMeta(strings.Join(clues.Words, " "))
+		words := strings.Join(clues.Words, " ")
+		if opts.grep == "" {
+			opts.grep = regexp.QuoteMeta(words)
+		} else {
+			opts.within = words
+		}
 		clues.Words = nil
 	}
 	if opts.brief {
@@ -206,7 +211,7 @@ func run(env Env, opts options, clueArgs []string) error {
 	// file; --list with a file clue used to list every recent session instead.
 	fileLookup := len(clues.Paths) > 0 && len(clues.IDs) == 0
 	// A grep is the question, so --list lists the sessions that match it.
-	grepAcross := opts.grep != "" && len(clues.IDs) == 0 && len(clues.Files) == 0
+	grepAcross := opts.grep != "" && (opts.within != "" || len(clues.IDs) == 0 && len(clues.Files) == 0)
 	if opts.list && !fileLookup && !grepAcross {
 		if !opts.json {
 			fmt.Fprintln(w, "catalog: persisted harness logs; ephemeral jobs without rollouts and logs outside harness roots are not catalogued")
@@ -246,8 +251,8 @@ func run(env Env, opts options, clueArgs []string) error {
 		return touched(env, res, opts, clues, ro)
 	}
 
-	// Grep without a pinned session searches every candidate.
-	if opts.grep != "" && len(clues.IDs) == 0 && len(clues.Files) == 0 && len(res.Matches) > 1 {
+	// A grep with --content words, or a grep with no pinned session, searches every candidate.
+	if opts.grep != "" && (opts.within != "" || len(clues.IDs) == 0 && len(clues.Files) == 0 && len(res.Matches) > 1) {
 		return searchAcross(env, res, opts, ro)
 	}
 
@@ -498,6 +503,15 @@ func searchAcross(env Env, res *catalog.Result, opts options, ro render.Options)
 	if err != nil {
 		return err
 	}
+	var withinRe *regexp.Regexp
+	if opts.within != "" {
+		withinRe, err = regexp.Compile("(?i)" + regexp.QuoteMeta(opts.within))
+		if err != nil {
+			return err
+		}
+	}
+	wf := f
+	wf.Grep, wf.Head, wf.Tail = withinRe, 0, 0
 	raw := f.Grep // the view's own pattern: the scan finds what the view will show
 	cands := candidates(res)
 
@@ -513,15 +527,14 @@ func searchAcross(env Env, res *catalog.Result, opts options, ro render.Options)
 	// matching session never crowds out the sessions after it.
 	for from := 0; from < len(cands); from += scanBatch {
 		part := cands[from:min(from+scanBatch, len(cands))]
-		batch := scan.Sessions(env.ctx(), part, raw)
-		found.Sessions += batch.Sessions
-		found.Files += batch.Files
-		found.Bytes += batch.Bytes
-		found.Failed += batch.Failed
-		found.Unread += batch.Unread
+		batch := scanWithin(env, part, raw, withinRe, &found)
 		at := 0
 		for at < len(batch.Matches) {
 			for _, hit := range selectBatch(env, batch.Matches[at:], opts, f) {
+				if withinRe != nil && hit.t != nil && engine.Select(hit.t, wf).Matched == 0 {
+					at++
+					continue
+				}
 				// Whether a session has anything to show is a fact about its
 				// events: the byte scan matched the whole log, including the
 				// parts this view leaves out.
@@ -550,6 +563,9 @@ func searchAcross(env Env, res *catalog.Result, opts options, ro render.Options)
 		return countView(env.Stdout, matched, shown, opts.json)
 	}
 	notices := []string{searched(found, shown, opts.grep)}
+	if withinRe != nil {
+		notices = append(notices, fmt.Sprintf("only sessions whose events hold %q (--content)", opts.within))
+	}
 	if n := unshownNotice(unshown); n != "" {
 		notices = append(notices, n)
 	}
@@ -567,6 +583,30 @@ func searchAcross(env Env, res *catalog.Result, opts options, ro render.Options)
 		fmt.Fprintln(env.Stdout, n)
 	}
 	return nil
+}
+
+// scanWithin counts each candidate once even when two patterns scan its bytes.
+func scanWithin(env Env, part []*transcript.Session, raw, within *regexp.Regexp, found *scan.Result) scan.Result {
+	pattern := raw
+	if within != nil {
+		pattern = within
+	}
+	batch := scan.Sessions(env.ctx(), part, pattern)
+	found.Sessions += batch.Sessions
+	found.Files += batch.Files
+	found.Bytes += batch.Bytes
+	found.Failed += batch.Failed
+	found.Unread += batch.Unread
+	if within == nil {
+		return batch
+	}
+	narrowed := make([]*transcript.Session, 0, len(batch.Matches))
+	for _, match := range batch.Matches {
+		narrowed = append(narrowed, match.Session)
+	}
+	batch = scan.Sessions(env.ctx(), narrowed, raw)
+	found.Bytes += batch.Bytes
+	return batch
 }
 
 // listMatches prints one line for each session that matched, with its count, so that --list stays a list.
