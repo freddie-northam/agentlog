@@ -265,6 +265,14 @@ its count, the sessions it appeared in, the exact ref that opens one, and what
 that record contains — enough to write the missing case without opening a raw
 log.
 
+The share read covers records in the newest sessions only. A log file that no
+discovery rule finds is in no session, so that share cannot count it. For that,
+`doctor` also walks each harness root and compares it with discovery over all
+time. It lists the `.jsonl` and `.jsonl.zst` files that no session reads,
+grouped by a pattern with ids replaced by `<id>`, with a count and one real
+path (`unread_files` in `--json`). The header says which scope each number
+covers.
+
 Each reader also states what it knows as a table (`internal/spec`), checked
 against the reader by a test, so a fix is usually one line. A record type can
 be named without a rebuild in `~/.config/agentlog/types.json`:

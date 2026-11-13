@@ -48,6 +48,13 @@ func doctor(env Env, res *catalog.Result, opts options) error {
 		r := examine(env, byProvider[h.Name], opts)
 		r.Provider, r.Present = h.Name, h.Present
 		r.Known = len(spec.Of(h.Name).Records)
+		if h.Present {
+			kinds, err := env.Catalog.Unread(h.Name)
+			if err != nil {
+				return err
+			}
+			r.UnreadFiles = kinds
+		}
 		reports = append(reports, r)
 	}
 
@@ -55,7 +62,7 @@ func doctor(env Env, res *catalog.Result, opts options) error {
 		return writeJSON(env.Stdout, doctorResponse(reports, limit))
 	}
 	w := env.Stdout
-	fmt.Fprintf(w, "how much of each harness's logs this build can read (newest %s per harness)\n\n", plural(limit, "session"))
+	fmt.Fprintf(w, "how much of each harness's logs this build can read (records: newest %s per harness, files: all time)\n\n", plural(limit, "session"))
 	window := "no sessions"
 	if !res.Since.IsZero() {
 		window = fmt.Sprintf("no sessions since %s (add 'all' to look further back)", res.Since.Local().Format("Jan 2 15:04"))
@@ -86,6 +93,9 @@ type health struct {
 	Known    int            `json:"known_types"`
 	Versions map[string]int `json:"cli_versions,omitempty"`
 	Types    []unread       `json:"unread_types,omitempty"`
+
+	// UnreadFiles are log files that no session lists, so the share of records read cannot count them.
+	UnreadFiles []catalog.FileKind `json:"unread_files,omitempty"`
 }
 
 // unread is one record type this build has no case for, with everything
@@ -121,7 +131,9 @@ func (h health) print(w io.Writer, empty string) {
 		if h.Failed > 0 {
 			empty = plural(h.Failed, "log file") + " could not be read at all"
 		}
-		fmt.Fprintf(w, "%-9s %s\n\n", h.Provider, empty)
+		fmt.Fprintf(w, "%-9s %s\n", h.Provider, empty)
+		h.printUnreadFiles(w)
+		fmt.Fprintln(w)
 		return
 	}
 	fmt.Fprintf(w, "%-9s %-36s %9s records  %5.1f%% read\n", h.Provider,
@@ -135,6 +147,7 @@ func (h health) print(w io.Writer, empty string) {
 		// are results whose call the pairing rule failed to find.
 		fmt.Fprintf(w, "          %s whose call was not found, shown on their own\n", plural(h.Unpaired, "tool result"))
 	}
+	h.printUnreadFiles(w)
 	for _, u := range h.Types {
 		fmt.Fprintf(w, "          %-34s ×%-6d in %-12s agentlog %s%s\n",
 			u.Type, u.Count, plural(u.Sessions, "session"), u.Ref, declaredBy(u.Declared))
@@ -144,6 +157,19 @@ func (h health) print(w io.Writer, empty string) {
 		fmt.Fprintf(w, "            observed versions: %s\n", versions(u.Versions))
 	}
 	fmt.Fprintln(w)
+}
+
+// unreadKinds is how many kinds of unread log file a report names before it gives the count of the rest.
+const unreadKinds = 5
+
+func (h health) printUnreadFiles(w io.Writer) {
+	for i, k := range h.UnreadFiles {
+		if i == unreadKinds {
+			fmt.Fprintf(w, "          +%s\n", plural(len(h.UnreadFiles)-i, "more kind"))
+			break
+		}
+		fmt.Fprintf(w, "          %s this build does not read: %s\n            e.g. %s\n", plural(k.Count, "log file"), k.Pattern, k.Sample)
+	}
 }
 
 // examine parses a harness's newest sessions and adds up what was readable.
